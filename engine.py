@@ -102,20 +102,61 @@ def ftp_names(ftp, sizes=None):
         return sorted(out)
 
 
+class FtpStepError(ftplib.error_perm):
+    """Refus d'une commande FTP, QUALIFIÉ : quelle commande, sur quel fichier, réponse
+    exacte du HyperDeck, et de quel côté vient le problème (`side`) :
+      - "missing"  : le fichier n'existe pas (ou plus) sous ce nom sur le disque ;
+      - "hyperdeck": le fichier est là, mais la machine refuse l'opération.
+    Hérite de error_perm : les replis existants (`except ftplib.all_errors`) s'appliquent."""
+
+    def __init__(self, cmd, name, reply, side, text):
+        super().__init__(text)
+        self.cmd, self.name, self.reply, self.side, self.text = cmd, name, reply, side, text
+
+
+RETRY_DELAYS = (1, 3, 6)    # refus d'un fichier PRÉSENT : peut-être passager (relecture du disque)
+
+
+def _ftp_step(ftp, cmd, name, fn):
+    last = None
+    for attempt, delay in enumerate((0,) + RETRY_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            return fn()
+        except (ftplib.error_perm, ftplib.error_temp) as e:
+            last = str(e).strip()
+            try:
+                present = name in ftp_names(ftp)
+            except ftplib.all_errors:
+                present = None
+            if present is False:
+                raise FtpStepError(cmd, name, last, "missing",
+                                   "%s « %s » : le fichier n'existe pas sous ce nom sur le HyperDeck "
+                                   "(réponse : %s)" % (cmd, name, last))
+    raise FtpStepError(cmd, name, last, "hyperdeck",
+                       "%s « %s » refusé par le HyperDeck, %d essais sur %d s (réponse : %s). Le "
+                       "fichier est bien sur le disque : il est peut-être chargé ou en lecture, "
+                       "ou le disque est en cours de relecture." % (cmd, name, len(RETRY_DELAYS) + 1,
+                                                                     sum(RETRY_DELAYS), last))
+
+
 def ftp_rename(ftp, src, dst):
     """RNFR/RNTO tolérant. `ftplib.rename` exige « 350 » au RNFR (RFC 959) ; le HyperDeck
     répond « 200 Command successful » — relevé le 2026-11-15 sur machine réelle — et
     ftplib abandonnait, laissant la machine en attente du RNTO. Tout code 2xx/3xx est
     donc accepté au RNFR ; le RNTO doit répondre 2xx."""
-    ftp.sendcmd("RNFR " + src)          # lève error_temp/error_perm sur 4xx/5xx
-    return ftp.voidcmd("RNTO " + dst)
+    def go():
+        ftp.sendcmd("RNFR " + src)      # lève error_temp/error_perm sur 4xx/5xx
+        return ftp.voidcmd("RNTO " + dst)
+    return _ftp_step(ftp, "Renommage", src, go)
 
 
 def ftp_delete(ftp, name):
     """DELE tolérant : `ftplib.delete` n'accepte que 250/200, et le FTP du HyperDeck a déjà
     montré des codes hors norme (200 au RNFR). Tout 2xx/3xx passe ; la VRAIE preuve est la
     relecture du dossier, faite après chaque échange ou suppression."""
-    return ftp.sendcmd("DELE " + name)  # lève error_temp/error_perm sur 4xx/5xx
+    return _ftp_step(ftp, "Suppression", name, lambda: ftp.sendcmd("DELE " + name))
 
 
 def ftp_dirs(p, path):
@@ -249,6 +290,8 @@ def _worker(pid):
     q = _queues[pid]
     while True:
         _, _, jid = q.get()
+        while _paused.get(pid):
+            time.sleep(0.5)             # file suspendue : on garde le travail, on n'insiste pas
         with _glock:
             j = _jobs.get(jid)
         if not j or j["state"] != "queued":
@@ -270,17 +313,85 @@ def _worker(pid):
                 _swap(j, p)
             j["state"] = "done"
             _log(j, "terminé")
+            _fail_streak.pop(pid, None)
         except Cancelled:
             j["state"] = "cancelled"
             _log(j, "annulé")
         except Exception as e:
-            j["state"], j["error"] = "error", str(e)
+            side, sig = classify(e)
+            j["state"], j["error"], j["error_side"] = "error", str(e), side
             _log(j, "échec : %s" % e)
             print("[job %s] %s" % (jid, traceback.format_exc()), flush=True)
+            _streak(pid, sig, j)
         finally:
             j["ended"] = time.time()
             _discard_local(j)
             _changed(pid)
+
+
+SIDES = {
+    "hyperdeck": "refusé par le HyperDeck",
+    "missing": "fichier introuvable sur le HyperDeck",
+    "network": "HyperDeck injoignable (réseau, FTP ou identifiants)",
+    "deck": "protocole du HyperDeck (TCP 9993)",
+    "tool": "erreur de l'outil",
+}
+PAUSE_AFTER = 3
+_fail_streak = {}           # pid → (signature, nombre d'échecs identiques d'affilée)
+_paused = {}                # pid → {reason, side, count, since}
+
+
+def classify(e):
+    """(côté, signature) d'une erreur. La signature regroupe les échecs « identiques »
+    (même côté, même commande, même code de réponse), quel que soit le fichier."""
+    if isinstance(e, FtpStepError):
+        return e.side, (e.side, e.cmd, (e.reply or "")[:3])
+    if isinstance(e, deck.DeckError):
+        return "deck", ("deck", str(e)[:40])
+    msg = str(e)
+    if isinstance(e, (OSError, EOFError)) or msg.startswith("FTP "):
+        return "network", ("network", msg.split(":")[0][:60])
+    if isinstance(e, ftplib.all_errors):
+        return "hyperdeck", ("hyperdeck", msg[:3])
+    return "tool", ("tool", type(e).__name__, msg[:60])
+
+
+def _streak(pid, sig, j):
+    prev = _fail_streak.get(pid)
+    n = prev[1] + 1 if prev and prev[0] == sig else 1
+    _fail_streak[pid] = (sig, n)
+    if n >= PAUSE_AFTER and not _paused.get(pid):
+        _paused[pid] = {"reason": j["error"], "side": j.get("error_side"), "count": n,
+                        "since": store.now()}
+
+
+def queue_state(pid):
+    with _glock:
+        queued = sum(1 for j in _jobs.values() if j["player"] == pid and j["state"] == "queued")
+    return {"paused": _paused.get(pid), "queued": queued}
+
+
+def resume(pid):
+    _paused.pop(pid, None)
+    _fail_streak.pop(pid, None)
+
+
+def cancel_queued(pid):
+    n = 0
+    with _glock:
+        for j in _jobs.values():
+            if j["player"] == pid and j["state"] == "queued":
+                j["state"], j["ended"] = "cancelled", time.time()
+                _discard_local(j)
+                n += 1
+    resume(pid)
+    return n
+
+
+def clear_failed(pid):
+    with _glock:
+        for k in [k for k, j in _jobs.items() if j["player"] == pid and j["state"] == "error"]:
+            _jobs.pop(k, None)
 
 
 def _render(j, p):
@@ -597,10 +708,26 @@ def _rename_placeholder(j, p):
     slot = next((s for s in p["slots"] if s["num"] == j["num"]), None)
     if not slot:
         raise RuntimeError("emplacement %s absent de la liste" % j["num"])
-    old, new = j["original"], ph_name(p, slot)
+    new = ph_name(p, slot)
     j["remote"] = new
     if store.num_of(new) != j["num"]:
         raise RuntimeError("nom calculé sans le numéro en tête : %s" % new)
+    # Le nom à renommer est relu SUR LE DISQUE maintenant, jamais pris dans le plan : un
+    # relevé fait pendant un transfert (ou deux changements de modèle de suite) donnait un
+    # nom périmé → « 550 File unavailable » en série (relevé le 2026-11-15).
+    ftp = ftp_open(p)
+    try:
+        cur = [n for n in ftp_names(ftp) if store.num_of(n) == j["num"] and store.is_media(n)]
+    finally:
+        _close(ftp)
+    if cur == [new]:
+        _log(j, "déjà au bon nom : rien à faire")
+        return
+    if len(cur) != 1:
+        raise RuntimeError("l'emplacement %s porte %s sur le disque : renommage impossible, "
+                           "relancez « Combler les vides »" % (j["num"], ", ".join(cur) or "aucun fichier"))
+    old = cur[0]
+    j["original"] = old
     _wait_air(j, p, [old])
     j["state"] = "swapping"
     _log(j, "renommage : %s → %s" % (old, new))

@@ -87,7 +87,8 @@ def _view(p):
             "scan": scan, "anomalies": {k: ev[k] for k in ("foreign", "temps", "others")},
             "order": ev["order"], "jobs": [j for j in js if j["state"] != "done"][-30:],
             "done": [j for j in js if j["state"] == "done"][-10:],
-            "pending": engine.pending_list(p["id"])}
+            "pending": engine.pending_list(p["id"]), "queue": engine.queue_state(p["id"]),
+            "sides": engine.SIDES}
 
 
 def _dir_bytes(path):
@@ -269,6 +270,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, _view(_player(pid)))
             if m == "POST" and P[2] == "fill":
                 return self._fill(pid, self._json())
+            if m == "POST" and P[2] == "queue" and P[3] in ("resume", "cancel", "clear-failed"):
+                _player(pid)
+                if P[3] == "resume":
+                    engine.resume(pid)
+                    return self._send(200, {"ok": True})
+                if P[3] == "cancel":
+                    return self._send(200, {"ok": True, "cancelled": engine.cancel_queued(pid)})
+                engine.clear_failed(pid)
+                return self._send(200, {"ok": True})
             if m == "GET" and P[2] == "ph-preview":
                 # GET : lecture pure, non journalisée (l'aperçu suit chaque retouche).
                 try:

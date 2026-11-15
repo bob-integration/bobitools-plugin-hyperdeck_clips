@@ -187,7 +187,9 @@ window.BTTools.hyperdeck_clips = (function () {
             if (o) {
                 if (o.ok) {
                     txt = "<strong>✓ " + o.count + " / " + o.expected + " clips, dans l'ordre.</strong> "
-                        + (counts.delivered || 0) + " livrés, " + (counts.empty || 0) + " bouche-trous.";
+                        + (counts.delivered || 0) + " livrés, " + ((counts.empty || 0) + (counts.stale_placeholder || 0)) + " bouche-trous"
+                        + (counts.stale_placeholder ? " (dont " + counts.stale_placeholder + " à renommer ou refaire : « Combler les vides »)" : "")
+                        + (counts.foreign_file ? ", " + counts.foreign_file + " fichier(s) non suivi(s)" : "") + ".";
                     cls = "ok";
                 } else {
                     txt = gapsText(o);
@@ -302,7 +304,30 @@ window.BTTools.hyperdeck_clips = (function () {
                 + (u.state === "waiting" || u.state === "uploading" ? ' <button class="btn" type="button" data-cancel-up="' + esc(u.key) + '">Annuler</button>' : "")
                 + "</span></div>");
         });
-        const jobs = (view.jobs || []).filter((j) => j.state !== "cancelled");
+        const jobs = (view.jobs || []).filter((j) => j.state !== "cancelled" && j.state !== "error");
+        const qs = view.queue || {}, sides = view.sides || {};
+        if (qs.paused) {
+            rows.unshift('<div class="hc-alert bad"><strong>File suspendue</strong> après ' + esc(qs.paused.count) + " échecs identiques d'affilée — "
+                + "<strong>" + esc(sides[qs.paused.side] || qs.paused.side || "") + "</strong> :<br>" + esc(qs.paused.reason)
+                + "<br>" + esc(qs.queued) + " transfert(s) restent en attente, rien n'a été perdu."
+                + (canDeliver ? ' <button class="btn" type="button" data-queue="resume">Reprendre la file</button> <button class="btn btn-red" type="button" data-queue="cancel">Annuler les ' + esc(qs.queued) + " en attente</button>" : "") + "</div>");
+        }
+        // Échecs regroupés par cause : même côté + même message (noms de fichiers mis de côté).
+        const groups = new Map();
+        (view.jobs || []).filter((j) => j.state === "error").forEach((j) => {
+            const key = (j.error_side || "?") + "|" + String(j.error || "").replace(/« [^»]*»/g, "«…»").replace(/\d+ s\b/g, "");
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(j);
+        });
+        groups.forEach((list) => {
+            const j0 = list[0];
+            rows.push('<div class="hc-alert bad"><strong>' + list.length + " transfert(s) en échec</strong> — côté : <strong>"
+                + esc(sides[j0.error_side] || j0.error_side || "inconnu") + "</strong><br>" + esc(j0.error)
+                + '<br><span class="hc-note">Emplacements : ' + list.map((j) => esc(j.num || j.remote || "?")).join(", ") + "</span>"
+                + (canDeliver ? ' <button class="btn" type="button" data-queue="retry">Réessayer</button> <button class="btn" type="button" data-queue="clear-failed">Effacer ces échecs</button>' : "")
+                + (list.some((j) => j.kind === "deliver") ? '<br><span class="hc-note">Un clip livré en échec doit être redéposé : son fichier n\'est pas gardé sur le serveur.</span>' : "")
+                + "</div>");
+        });
         const isBulk = (j) => (j.kind === "placeholder" || j.kind === "rename") && j.state === "queued";
         const placeholders = jobs.filter(isBulk);
         jobs.filter((j) => !isBulk(j)).forEach((j) => {
@@ -357,7 +382,8 @@ window.BTTools.hyperdeck_clips = (function () {
             prog = '<span class="hc-bar-p ftp"><i style="--p:' + (pct / 100) + '"></i></span><span class="hc-slot-job">'
                 + esc((JOB[j.state] || j.state) + (j.state === "sending" ? " " + Math.round(pct) + " %" : "")) + "</span>";
         } else if (j && j.state === "error") {
-            prog = '<span class="hc-slot-job" style="color:var(--status-stopped-fg)" title="' + esc(j.error) + '">Échec : ' + esc(j.error) + "</span>";
+            prog = '<span class="hc-slot-job" style="color:var(--status-stopped-fg)" title="' + esc(j.error) + '">Échec : '
+                + esc((view.sides || {})[j.error_side] || j.error) + "</span>";
         }
         return '<span class="hc-slot-h"><span class="hc-slot-n">' + esc(s.num) + "</span>" + badge + rank + "</span>"
             + '<span class="hc-slot-nom" title="' + esc(s.nom) + '">' + esc(s.nom || "—") + "</span>"
@@ -1116,6 +1142,17 @@ window.BTTools.hyperdeck_clips = (function () {
                 if (ds.delRemote) {
                     if (!(await confirmDlg("Supprimer du HyperDeck", "Supprimer définitivement « <span class=\"hc-mono\">" + esc(ds.delRemote) + "</span> » du disque du HyperDeck ?", "Supprimer"))) return;
                     await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.delRemote } });
+                    return loadView().then(schedule);
+                }
+                if (ds.queue) {
+                    if (ds.queue === "retry") {
+                        await ctx.api("players/" + pid + "/queue/clear-failed", { method: "POST", body: {} });
+                        await ctx.api("players/" + pid + "/queue/resume", { method: "POST", body: {} });
+                        await fill(false);
+                        return;
+                    }
+                    if (ds.queue === "cancel" && !(await confirmDlg("Annuler la file", "Les transferts en attente seront annulés (les clips déjà envoyés ne bougent pas).", "Annuler la file"))) return;
+                    await ctx.api("players/" + pid + "/queue/" + ds.queue, { method: "POST", body: {} });
                     return loadView().then(schedule);
                 }
                 if (ds.clearCache !== undefined) {

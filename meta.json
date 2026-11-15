@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.6.2",
+   "date": "2026-11-15",
+   "notes": "« 550 File unavailable » EN SÉRIE après un changement de nom des bouche-trous : l'erreur venait de l'OUTIL. Les renommages étaient préparés avec le relevé du disque fait pendant les transferts précédents (listing mis en cache) ; après un second changement de modèle, chacun demandait au HyperDeck un fichier déjà renommé. Le renommage relit désormais le disque au moment de s'exécuter (renomme le fichier qui porte réellement ce numéro, ou ne fait rien s'il a déjà le bon nom). ERREURS QUALIFIÉES : chaque échec dit la commande, le fichier, la réponse exacte et le CÔTÉ (refusé par le HyperDeck / fichier introuvable / HyperDeck injoignable / protocole / erreur de l'outil) ; un refus sur un fichier présent est retenté 4 fois sur 10 s (disque en relecture). Échecs REGROUPÉS par cause en un bandeau (emplacements listés, Réessayer / Effacer) au lieu d'une ligne par case. La file se SUSPEND après 3 échecs identiques d'affilée (rien n'est perdu ; Reprendre / Annuler les transferts en attente). Le verdict vert compte aussi les bouche-trous à renommer ou refaire."
+  },
+  {
    "version": "0.6.1",
    "date": "2026-11-15",
    "notes": "VÉRIFICATION REPRÉSENTATIVE après un dépôt. Relevé sur machine réelle : le HyperDeck relit son disque EN DIFFÉRÉ — juste après un échange FTP, le fichier est en place mais `clips get` annonce encore l'ancien quelques secondes. L'outil vérifiait aussitôt et affichait « Liste décalée » en rouge, puis attendait une minute. Désormais : revérifications rapprochées après chaque transfert (2, 5, 10, 20, 40 s, arrêt dès que tout colle) ; l'écart est DÉCRIT emplacement par emplacement (« 113 : sur le disque « … », le HyperDeck liste encore « … » — rappeler le rang 11 lancerait encore l'ancien », fichier pas encore vu, mauvais rang, problème côté disque, clips hors liste, nombre de clips) ; orange « relecture du HyperDeck » tant que la relecture est plausible (≈ 90 s après le dernier transfert), ROUGE si l'écart persiste au-delà, avec le délai écoulé. Rien n'est masqué : l'écart reste affiché dans les deux cas."
