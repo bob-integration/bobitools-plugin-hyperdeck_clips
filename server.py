@@ -139,6 +139,19 @@ class Handler(BaseHTTPRequestHandler):
         """Corps non lu (refus avant lecture) : on ferme plutôt que de tout avaler."""
         self.close_connection = True
 
+    def _require_stream(self):
+        """Un envoi DOIT arriver en application/octet-stream. Un cœur Bobi.Tools sans le
+        relais par morceaux (`_proxy_stream`, commit 134f30d) transforme le fichier en
+        corps JSON « {} » : ffprobe lisait 2 octets et l'outil annonçait « fichier
+        illisible » pour un clip parfaitement conforme (relevé le 2026-11-15)."""
+        ct = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ct != "application/octet-stream":
+            self._drain()
+            raise _err(426, "le fichier n'est pas parvenu à l'outil : le cœur de Bobi.Tools est trop "
+                            "ancien pour relayer un envoi de fichier. Mettez à jour Bobi.Tools "
+                            "(relais des envois, app/routes.py:_proxy_stream), puis redémarrez-le.",
+                       reason="core_too_old")
+
     def _receive(self, dst, limit=None):
         """Écrit le corps sur disque, par blocs. Renvoie le nombre d'octets reçus."""
         n = self._length()
@@ -314,10 +327,11 @@ class Handler(BaseHTTPRequestHandler):
         if n + SPACE_MARGIN > free:
             self._drain()
             raise _err(507, "espace disque insuffisant sur le serveur : %d Mo libres, %d Mo nécessaires"
-                       % (free // 2**20, (n + SPACE_MARGIN) // 2**20), code="no_space")
+                       % (free // 2**20, (n + SPACE_MARGIN) // 2**20), reason="no_space")
 
     def _precheck(self, pid):
         p = _player(pid)
+        self._require_stream()
         os.makedirs(store.WORK, exist_ok=True)
         fd, path = tempfile.mkstemp(dir=store.WORK, suffix=".mov")
         os.close(fd)
@@ -340,6 +354,7 @@ class Handler(BaseHTTPRequestHandler):
         p = _player(pid)
         slot = _slot(p, num)
         original = os.path.basename(q.get("name") or "clip.mov")
+        self._require_stream()
         n = self._length()
         if not n:
             raise _err(400, "fichier vide")
@@ -351,7 +366,8 @@ class Handler(BaseHTTPRequestHandler):
             s = media.summarize(media.probe(path))
         except Exception as e:
             os.remove(path)
-            raise _err(422, "fichier illisible : %s" % e, problems=["fichier illisible"])
+            raise _err(422, "fichier illisible : %s" % e,
+                       problems=["fichier illisible par ffprobe (%d octets reçus) : %s" % (n, e)])
         r = media.check(s, p["format"])
         if not r["ok"]:
             if r["fixable_field_order"]:

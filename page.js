@@ -425,7 +425,10 @@ window.BTTools.hyperdeck_clips = (function () {
                     return;
                 }
             }
-        } catch (e) { /* pré-contrôle indisponible : le contrôle complet tranchera */ }
+        } catch (e) {
+            if (e.coreTooOld) { finish(u, "failed", "cœur trop ancien"); msg("Envoi impossible", "<p>" + esc(e.message) + "</p>", []); return; }
+            /* pré-contrôle indisponible : le contrôle complet tranchera */
+        }
         u.state = "waiting";
         render();
         pump();
@@ -458,6 +461,10 @@ window.BTTools.hyperdeck_clips = (function () {
         if (!blob) return null;
         const r = await fetch("/api/tools/" + encodeURIComponent(ctx.type) + "/players/" + encodeURIComponent(pid) + "/precheck",
             { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: blob });
+        if (r.status === 426) {          // cœur trop ancien : inutile d'envoyer le fichier entier
+            const d = await r.json().catch(() => ({}));
+            throw Object.assign(new Error(d.error || "cœur trop ancien"), { coreTooOld: true });
+        }
         if (!r.ok) return null;
         return r.json();
     }

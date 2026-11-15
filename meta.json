@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.2.2",
+   "date": "2026-11-15",
+   "notes": "« Fichier illisible » sur un clip conforme : le fichier n'atteignait pas l'outil. Un cœur Bobi.Tools sans le relais des envois (app/routes.py:_proxy_stream) remplace le corps par « {} » : ffprobe lisait 2 octets. L'outil exige désormais un envoi binaire et, sinon, le dit en clair (« cœur trop ancien ») dès le pré-contrôle, avant d'envoyer le fichier entier. Le message « illisible » donne aussi l'erreur de ffprobe et le nombre d'octets reçus."
+  },
+  {
    "version": "0.2.1",
    "date": "2026-11-15",
    "notes": "PREMIER ESSAI SUR UN VRAI HYPERDECK : aucun clip ne se posait, et des fichiers zzz_envoi_… s'accumulaient en fin de liste. Le HyperDeck répond « 200 Command successful » au RNFR du renommage FTP là où la norme (et ftplib) attend « 350 » : l'échange abandonnait, puis le repli (envoi direct) recevait « 503 Bad sequence of commands » d'une machine restée en attente du RNTO, et le temporaire restait sur le disque. Le renommage accepte désormais tout 2xx/3xx au RNFR ; le repli repart sur une session FTP neuve ; un échange ou un envoi qui échoue supprime toujours son temporaire. Bouton « Supprimer les N temporaires » pour nettoyer les restes. Banc : RNFR=200 reproduit, renommage refusé (repli) vérifié."
