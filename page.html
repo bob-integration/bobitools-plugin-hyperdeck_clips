@@ -35,7 +35,8 @@
     <div class="hc-alerts" id="hc-alerts"></div>
     <div class="hc-transfers" id="hc-transfers"></div>
 
-    <p class="hc-hint" id="hc-hint" data-i18n="plugin.hyperdeck_clips.hint">Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers nommés « 104 - … » peuvent être glissés d'un coup n'importe où sur la page.</p>
+    <p class="hc-hint" id="hc-hint" data-i18n="plugin.hyperdeck_clips.hint">Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers d'un coup : lâchés sur une case, ils remplissent les cases suivantes (aperçu pendant le survol) ; lâchés ailleurs, ils sont répartis selon le numéro en tête de leur nom.</p>
+    <div class="hc-drop-hint" id="hc-drop-hint" role="status" hidden></div>
     <div class="hc-cats" id="hc-cats"></div>
   </section>
 
@@ -100,6 +101,33 @@
           Doit commencer par <span class="hc-mono">{num}</span> suivi d'un séparateur ; « .mov » est ajouté.<br><span id="hc-tpl-preview"></span></div>
         <label for="hc-s-dur">Durée (secondes)</label><input id="hc-s-dur" name="placeholder_duration" type="number" min="1" max="600" class="hc-num">
         <label for="hc-s-audio">Pistes audio (silence)</label><input id="hc-s-audio" name="audio_channels" type="number" min="0" max="16" class="hc-num">
+      </div>
+      <div class="hc-ph-style">
+        <div class="hc-ph-form">
+          <div class="hc-grid">
+            <label for="hc-s-bg">Fond</label><input id="hc-s-bg" name="ph_bg" type="color">
+            <label for="hc-s-fg">Texte</label><input id="hc-s-fg" name="ph_fg" type="color">
+          </div>
+          <div class="hc-sub-h">Fond par catégorie</div>
+          <div class="hc-cat-colors" id="hc-cat-colors"></div>
+          <div class="hc-sub-h">Infos affichées</div>
+          <div class="hc-shows">
+            <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="show_num"><span>Numéro</span></label>
+            <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="show_nom"><span>Nom</span></label>
+            <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="show_cat"><span>Catégorie</span></label>
+            <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="show_lecteur"><span>Lecteur</span></label>
+            <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="show_mention"><span>Mention</span></label>
+          </div>
+          <div class="hc-grid">
+            <label for="hc-s-mention">Texte de la mention</label><input id="hc-s-mention" name="ph_mention" maxlength="120" placeholder="clip non livré">
+          </div>
+          <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="ph_cache">
+            <span>Garder les bouche-trous sur le serveur (évite de les refabriquer ; ≈ <span id="hc-cache-est">?</span> pour cette liste)</span></label>
+        </div>
+        <figure class="hc-ph-preview">
+          <img id="hc-ph-img" alt="Aperçu du bouche-trou">
+          <figcaption><select id="hc-ph-num" aria-label="Emplacement de l'aperçu"></select> <span id="hc-ph-msg" class="hc-note"></span></figcaption>
+        </figure>
       </div>
       <h4>Sécurité</h4>
       <label class="hc-toggle"><input type="checkbox" class="ios-toggle" id="hc-s-air" name="protect_on_air">

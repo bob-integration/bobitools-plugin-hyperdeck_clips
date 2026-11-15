@@ -153,3 +153,27 @@
 
 .hc-slot[draggable=true] { cursor: grab; }
 .hc-slot.moving { opacity: .45; }
+
+/* Apparence des bouche-trous : réglages à gauche, aperçu à droite */
+.hc-ph-style { display: grid; grid-template-columns: 1fr minmax(220px, 300px); gap: 14px; align-items: start; }
+@media (max-width: 680px) { .hc-ph-style { grid-template-columns: 1fr; } }
+.hc-ph-form { display: flex; flex-direction: column; gap: 8px; }
+.hc-sub-h { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.hc-cat-colors { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; }
+.hc-cat-colors label { display: inline-flex; align-items: center; gap: 6px; }
+.hc-cat-colors input[type=color] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--border); }
+.hc-cat-colors input[type=color]:disabled { opacity: .35; }
+.hc-shows { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.hc-ph-preview { margin: 0; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; }
+.hc-ph-preview img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border: 1px solid var(--border);
+  border-radius: var(--radius-small); background: var(--bg); }
+.hc-ph-preview figcaption { font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Dépôt groupé : cases qui seraient remplies pendant le survol */
+.hc-slot.fill { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
+.hc-drop-hint { position: sticky; top: 8px; z-index: 5; align-self: center; padding: 6px 14px; border-radius: var(--radius);
+  background: var(--accent); color: var(--btn-text, var(--bg)); font-size: 13px; font-weight: 600; box-shadow: var(--shadow); pointer-events: none; }
+.hc-drop-hint[hidden] { display: none; }
+.hc-bulk-opts { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.hc-bulk-opts label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.hc-inline { font-size: 12px; color: var(--text-muted); }

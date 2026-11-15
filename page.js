@@ -220,7 +220,8 @@ window.BTTools.hyperdeck_clips = (function () {
             parts.push('<span class="hc-store ' + cls + '" title="Chaque clip déposé transite en entier par ce disque avant son envoi au HyperDeck. Marge gardée libre : '
                 + fmtSize(sv.margin) + '.">Serveur : <strong>' + fmtSize(sv.free) + " libres</strong> sur " + fmtSize(sv.total)
                 + ' <span class="hc-bar-p ' + cls + '"><i style="--p:' + ratio.toFixed(3) + '"></i></span>'
-                + (sv.in_transit ? " · en transit " + fmtSize(sv.in_transit) : "") + " · clip max ≈ " + fmtSize(Math.max(0, sv.free - sv.margin)) + "</span>");
+                + (sv.in_transit ? " · en transit " + fmtSize(sv.in_transit) : "") + " · clip max ≈ " + fmtSize(Math.max(0, sv.free - sv.margin))
+                + (sv.cache ? ' · cache bouche-trous ' + fmtSize(sv.cache) + (canManage ? ' <button class="btn" type="button" data-clear-cache>vider</button>' : "") : "") + "</span>");
         }
         if (dk) {
             const bits = [];
@@ -582,22 +583,90 @@ window.BTTools.hyperdeck_clips = (function () {
     }
 
     // Dépôt groupé : fichiers nommés « 104 - … » lâchés hors d'un emplacement.
-    function bulkDrop(files) {
-        const rows = files.map((f) => {
-            const n = numPrefix(f.name);
-            const s = n && view.slots.find((x) => x.num === n);
-            return { f, n, s };
+    // Cases que N fichiers rempliraient à partir de `startNum`, dans l'ordre de la liste.
+    // `skipFull` : on saute les cases qui portent déjà un clip livré (défaut), pour ne
+    // jamais remplacer un clip sans l'avoir voulu.
+    function seqTargets(startNum, n, skipFull) {
+        const i0 = view.slots.findIndex((x) => x.num === startNum);
+        if (i0 < 0) return { slots: [], missing: n };
+        const out = [];
+        for (let i = i0; i < view.slots.length && out.length < n; i++) {
+            const x = view.slots[i];
+            if (skipFull && (x.status === "delivered" || x.job || uploadOf(x.num))) continue;
+            out.push(x);
+        }
+        return { slots: out, missing: n - out.length };
+    }
+
+    const natural = (a, b) => a.name.localeCompare(b.name, "fr", { numeric: true, sensitivity: "base" });
+
+    // Dépôt de plusieurs fichiers : aperçu fichier → case, deux façons de répartir.
+    function bulkDrop(files, startNum) {
+        files = files.slice().sort(natural);
+        const byNum = files.every((f) => { const n = numPrefix(f.name); return n && view.slots.some((x) => x.num === n); });
+        const st = { mode: byNum ? "prefix" : "seq", start: startNum || (view.slots.find((x) => x.status !== "delivered") || view.slots[0] || {}).num, skip: true };
+        const plan = () => {
+            if (st.mode === "prefix") return files.map((f) => { const n = numPrefix(f.name); return { f, s: n && view.slots.find((x) => x.num === n), why: n ? "numéro " + n + " absent de la liste" : "pas de numéro en tête" }; });
+            const t = seqTargets(st.start, files.length, st.skip);
+            return files.map((f, i) => ({ f, s: t.slots[i], why: "plus de case libre après " + st.start }));
+        };
+        const draw = () => {
+            const rows = plan(), ok = rows.filter((r) => r.s);
+            const repl = ok.filter((r) => r.s.status === "delivered").length;
+            const body = $("#hc-msg-body");
+            body.innerHTML = '<div class="hc-bulk-opts">'
+                + '<label><input type="radio" name="hc-bm" value="seq"' + (st.mode === "seq" ? " checked" : "") + "> À la suite, à partir de "
+                + '<select id="hc-bm-start">' + view.slots.map((x) => '<option value="' + esc(x.num) + '"' + (x.num === st.start ? " selected" : "") + ">" + esc(x.num + " — " + x.nom) + "</option>").join("") + "</select>"
+                + ' <label class="hc-inline"><input type="checkbox" id="hc-bm-skip"' + (st.skip ? " checked" : "") + "> sauter les cases déjà livrées</label></label>"
+                + '<label><input type="radio" name="hc-bm" value="prefix"' + (st.mode === "prefix" ? " checked" : "") + "> Selon le numéro en tête du nom de fichier (« 104 - … »)</label></div>"
+                + "<p><strong>" + ok.length + "</strong> case(s) remplie(s) sur " + files.length + " fichier(s)"
+                + (repl ? ' · <span class="hc-badge warn">' + repl + " clip(s) remplacé(s)</span>" : "")
+                + (ok.length < files.length ? ' · <span class="hc-badge bad">' + (files.length - ok.length) + " fichier(s) sans case</span>" : "") + "</p>"
+                + '<div class="hc-scroll"><table class="hc-table"><thead><tr><th>Fichier</th><th>Case</th><th>Aujourd\'hui</th></tr></thead><tbody>'
+                + rows.map((r) => "<tr><td>" + esc(r.f.name) + " <span class=\"hc-note\">" + fmtSize(r.f.size) + "</span></td><td>"
+                    + (r.s ? "<strong>" + esc(r.s.num) + "</strong> " + esc(r.s.nom) : '<span class="hc-badge bad">' + esc(r.why) + "</span>") + "</td><td>"
+                    + (r.s ? (r.s.status === "delivered" ? '<span class="hc-badge warn">V' + esc((r.s.file || {}).v) + " remplacée</span>"
+                        : '<span class="hc-badge">' + esc((STATUS[r.s.status] || STATUS.unknown).label) + "</span>") : "") + "</td></tr>").join("")
+                + "</tbody></table></div>";
+            const go = $("#hc-msg-actions .btn-green");
+            if (go) { go.textContent = "Déposer " + ok.length + " fichier(s)"; go.disabled = !ok.length; }
+            body.querySelectorAll("[name=hc-bm]").forEach((x) => { x.onchange = () => { st.mode = x.value; draw(); }; });
+            $("#hc-bm-start").onchange = (e) => { st.start = e.target.value; st.mode = "seq"; draw(); };
+            $("#hc-bm-skip").onchange = (e) => { st.skip = e.target.checked; draw(); };
+        };
+        msg("Dépôt de " + files.length + " fichier(s)", "", [{
+            label: "Déposer", cls: "btn-green",
+            fn: () => plan().filter((r) => r.s).forEach((r) => queueFile(r.s.num, r.f, { quiet: true })),
+        }]);
+        draw();
+    }
+
+    // Surlignage pendant le survol : le navigateur donne le NOMBRE de fichiers (pas leurs
+    // noms) ; on allume les cases qu'ils rempliraient à partir de la case survolée.
+    function dragCount(e) {
+        const it = e.dataTransfer && e.dataTransfer.items;
+        const n = it ? Array.from(it).filter((x) => x.kind === "file").length : 0;
+        return n || 1;
+    }
+    function paintFill(startNum, n) {
+        // Un seul fichier remplace la case visée, quelle qu'elle soit ; plusieurs sautent les cases livrées.
+        const t = !startNum ? { slots: [], missing: 0 }
+            : n === 1 ? { slots: view.slots.filter((x) => x.num === startNum), missing: 0 } : seqTargets(startNum, n, true);
+        const on = new Set(t.slots.map((x) => x.num));
+        root.querySelectorAll(".hc-slot").forEach((el) => {
+            el.classList.toggle("drag", el.dataset.num === (t.slots[0] || {}).num);
+            el.classList.toggle("fill", on.has(el.dataset.num) && el.dataset.num !== (t.slots[0] || {}).num);
         });
-        const ok = rows.filter((r) => r.s);
-        const html = '<p>Chaque fichier va sur l\'emplacement dont il porte le numéro en tête de nom.</p><div class="hc-scroll"><table class="hc-table"><thead><tr><th>Fichier</th><th>Emplacement</th></tr></thead><tbody>'
-            + rows.map((r) => "<tr><td>" + esc(r.f.name) + "</td><td>" + (r.s ? "<strong>" + esc(r.s.num) + "</strong> " + esc(r.s.nom)
-                + (r.s.status === "delivered" ? ' <span class="hc-badge warn">remplace la V' + esc((r.s.file || {}).v) + "</span>" : "")
-                : '<span class="hc-badge bad">' + (r.n ? "numéro " + esc(r.n) + " absent de la liste" : "pas de numéro en tête") + "</span>") + "</td></tr>").join("")
-            + "</tbody></table></div>";
-        msg("Dépôt de " + files.length + " fichier(s)", html, ok.length ? [{
-            label: "Déposer " + ok.length + " fichier(s)", cls: "btn-green",
-            fn: () => ok.forEach((r) => queueFile(r.s.num, r.f, { quiet: true })),
-        }] : []);
+        const h = $("#hc-drop-hint");
+        if (!startNum) { h.hidden = false; h.textContent = n > 1 ? n + " fichiers : lâchez sur une case pour remplir à partir d'elle, ou ici pour répartir par numéro" : "Lâchez sur une case"; return; }
+        h.hidden = false;
+        h.textContent = n === 1 ? "1 fichier → " + startNum
+            : n + " fichiers → " + t.slots.length + " case(s)" + (t.slots.length ? " : " + t.slots[0].num + " à " + t.slots[t.slots.length - 1].num : "")
+              + (t.missing ? " · " + t.missing + " sans case (fin de liste)" : "") + " · cases déjà livrées sautées";
+    }
+    function clearFill() {
+        root.querySelectorAll(".hc-slot.drag, .hc-slot.fill").forEach((x) => x.classList.remove("drag", "fill"));
+        const h = $("#hc-drop-hint"); if (h) h.hidden = true;
     }
 
     // ── Dialogues génériques ──────────────────────────────────
@@ -635,6 +704,7 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-set-title").textContent = isNew ? "Nouveau lecteur" : "Réglages — " + p.name;
         ["name", "host", "ftp_port", "ftp_user", "ftp_dir", "tcp_port", "placeholder_duration", "audio_channels"].forEach((k) => { f.elements[k].value = p[k] == null ? "" : p[k]; });
         f.elements.placeholder_template.value = p.placeholder_template || "{num} - VIDE - {nom}";
+        fillStyle(p, isNew);
         f.dataset.tpl = f.elements.placeholder_template.value;
         tplPreview();
         f.elements.ftp_password.value = "";
@@ -655,6 +725,7 @@ window.BTTools.hyperdeck_clips = (function () {
             ftp_dir: f.ftp_dir.value.trim(), tcp_port: +f.tcp_port.value || 9993, placeholder_duration: +f.placeholder_duration.value || 10,
             audio_channels: +f.audio_channels.value || 0, protect_on_air: f.protect_on_air.checked,
             placeholder_template: f.placeholder_template.value.trim(),
+            ph_style: styleFromForm(), ph_cache: f.ph_cache.checked,
             format: { codec_tag: f.codec_tag.value, width: +f.width.value, height: +f.height.value, fps: f.fps.value, field_order: f.field_order.value },
         };
         if (f.ftp_password.value) b.ftp_password = f.ftp_password.value;
@@ -675,10 +746,21 @@ window.BTTools.hyperdeck_clips = (function () {
             } else {
                 const before = JSON.stringify(view.player.format);
                 const tplChanged = (view.player.placeholder_template || "") !== body.placeholder_template;
+                const styleChanged = JSON.stringify(normStyle(view.player.ph_style)) !== JSON.stringify(body.ph_style)
+                    || JSON.stringify(view.player.format) !== JSON.stringify(body.format)
+                    || view.player.placeholder_duration !== body.placeholder_duration || view.player.audio_channels !== body.audio_channels;
                 await ctx.api("players/" + pid, { method: "PUT", body });
                 $("#hc-set-dlg").close();
                 await loadView();
-                if (tplChanged && view.slots.length) {
+                if (styleChanged && view.slots.length && canDeliver) {
+                    await ctx.api("players/" + pid + "/scan", { method: "POST", body: {} }).catch(() => {});
+                    await loadView();
+                    const stale = view.slots.filter((s) => s.status === "stale_placeholder").length;
+                    const empty = view.slots.filter((s) => s.status === "empty" || s.status === "stale_placeholder").length;
+                    msg("Apparence des bouche-trous modifiée", "<p>Les bouche-trous déjà sur le HyperDeck gardent leur ancienne image tant qu'on ne les refait pas. "
+                        + (stale ? stale + " sont repérés comme périmés. " : "") + "Les refaire maintenant ? (envoi FTP de chaque bouche-trou, un par un ; la liste garde ses rangs)</p>",
+                        [{ label: "Refaire les " + empty + " bouche-trous", cls: "btn-green", fn: () => fill(true) }]);
+                } else if (tplChanged && view.slots.length) {
                     await ctx.api("players/" + pid + "/scan", { method: "POST", body: {} }).catch(() => {});
                     await loadView();
                     const stale = view.slots.filter((s) => s.status === "stale_placeholder").length;
@@ -691,6 +773,62 @@ window.BTTools.hyperdeck_clips = (function () {
                 else toast("Réglages enregistrés", "info");
             }
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
+    }
+
+    // ── Apparence des bouche-trous ──────────────────────────
+    const DEF_STYLE = { bg: "#000000", fg: "#6e6e6e", bg_by_cat: {}, show: { num: true, nom: true, cat: true, lecteur: true, mention: true }, mention: "clip non livré" };
+    function normStyle(st) {
+        st = st || {};
+        return { bg: (st.bg || DEF_STYLE.bg).toLowerCase(), fg: (st.fg || DEF_STYLE.fg).toLowerCase(),
+            bg_by_cat: Object.fromEntries(Object.entries(st.bg_by_cat || {}).map(([k, v]) => [k, String(v).toLowerCase()])),
+            show: Object.assign({}, DEF_STYLE.show, st.show || {}), mention: st.mention == null ? DEF_STYLE.mention : st.mention };
+    }
+    function fillStyle(p, isNew) {
+        const f = $("#hc-set-form").elements, st = normStyle(p.ph_style);
+        f.ph_bg.value = st.bg; f.ph_fg.value = st.fg; f.ph_mention.value = st.mention;
+        ["num", "nom", "cat", "lecteur", "mention"].forEach((k) => { f["show_" + k].checked = !!st.show[k]; });
+        f.ph_cache.checked = !!p.ph_cache;
+        const cats = isNew || !view ? [] : (view.categories || []);
+        $("#hc-cat-colors").innerHTML = cats.length ? cats.map((c) => {
+            const on = c in st.bg_by_cat;
+            return '<label><input type="checkbox" data-cat-on="' + esc(c) + '"' + (on ? " checked" : "") + '> ' + esc(c)
+                + ' <input type="color" data-cat-color="' + esc(c) + '" value="' + esc(on ? st.bg_by_cat[c] : st.bg) + '"' + (on ? "" : " disabled")
+                + ' aria-label="Fond de ' + esc(c) + '"></label>';
+        }).join("") : '<span class="hc-note">Importez d\'abord la liste : les catégories apparaîtront ici.</span>';
+        const sel = $("#hc-ph-num");
+        sel.innerHTML = isNew || !view ? "" : cats.map((c) => { const x = view.slots.find((s) => s.cat === c); return x ? '<option value="' + esc(x.num) + '">' + esc(x.num + " — " + c) + "</option>" : ""; }).join("");
+        const est = isNew || !view ? 0 : view.slots.length * (+f.placeholder_duration.value || 10) * 2.6e6;
+        $("#hc-cache-est").textContent = est ? fmtSize(est) : "?";
+        $("#hc-ph-img").removeAttribute("src");
+        $("#hc-ph-msg").textContent = isNew ? "aperçu disponible une fois le lecteur enregistré" : "";
+        if (!isNew) previewSoon();
+    }
+    function styleFromForm() {
+        const f = $("#hc-set-form").elements, by = {};
+        root.querySelectorAll("[data-cat-on]").forEach((c) => {
+            if (c.checked) by[c.dataset.catOn] = root.querySelector('[data-cat-color="' + CSS.escape(c.dataset.catOn) + '"]').value.toLowerCase();
+        });
+        return { bg: f.ph_bg.value.toLowerCase(), fg: f.ph_fg.value.toLowerCase(), bg_by_cat: by, mention: f.ph_mention.value,
+            show: { num: f.show_num.checked, nom: f.show_nom.checked, cat: f.show_cat.checked, lecteur: f.show_lecteur.checked, mention: f.show_mention.checked } };
+    }
+    let previewT = null, previewUrl = null, previewSeq = 0;
+    function previewSoon() { clearTimeout(previewT); previewT = setTimeout(preview, 350); }
+    async function preview() {
+        if (!pid || $("#hc-set-form").dataset.mode === "new") return;
+        const seq = ++previewSeq, f = $("#hc-set-form").elements;
+        $("#hc-ph-msg").textContent = "…";
+        try {
+            const q = JSON.stringify({ num: $("#hc-ph-num").value, style: styleFromForm(), lecteur: f.name.value,
+                format: { width: +f.width.value, height: +f.height.value } });
+            const r = await fetch("/api/tools/" + encodeURIComponent(ctx.type) + "/players/" + encodeURIComponent(pid) + "/ph-preview?q=" + encodeURIComponent(q));
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("HTTP " + r.status));
+            const blob = await r.blob();
+            if (seq !== previewSeq) return;
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = URL.createObjectURL(blob);
+            $("#hc-ph-img").src = previewUrl;
+            $("#hc-ph-msg").textContent = "";
+        } catch (e) { if (seq === previewSeq) $("#hc-ph-msg").textContent = "aperçu indisponible : " + e.message; }
     }
 
     // Aperçu du nom des bouche-trous, calculé comme le serveur (variables remplacées).
@@ -835,9 +973,9 @@ window.BTTools.hyperdeck_clips = (function () {
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
     }
 
-    async function fill() {
+    async function fill(redo) {
         try {
-            const r = await ctx.api("players/" + pid + "/fill", { method: "POST", body: {} });
+            const r = await ctx.api("players/" + pid + "/fill", { method: "POST", body: { redo: redo === true } });
             toast(r.queued ? r.queued + " bouche-trou(s) en file" + (r.renamed ? " (dont " + r.renamed + " simple(s) renommage(s))" : "") : "Rien à combler : tous les emplacements ont leur fichier", "info");
             await loadView(); schedule();
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
@@ -952,6 +1090,12 @@ window.BTTools.hyperdeck_clips = (function () {
                     await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.delRemote } });
                     return loadView().then(schedule);
                 }
+                if (ds.clearCache !== undefined) {
+                    if (!(await confirmDlg("Vider le cache", "Les bouche-trous gardés sur le serveur seront supprimés (pas ceux du HyperDeck). Ils seront refabriqués au besoin.", "Vider"))) return;
+                    const r = await ctx.api("cache/clear", { method: "POST", body: {} });
+                    toast(r.removed + " fichier(s) supprimé(s) du cache", "info");
+                    return loadView();
+                }
                 if (ds.moveFrom) {
                     const to = $("#hc-move-to").value;
                     if (!to) return toast("Choisissez l'emplacement de destination", "warning");
@@ -991,6 +1135,13 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-set-form").onsubmit = saveSettings;
         $("#hc-browse").onclick = () => browse($("#hc-set-form").elements.ftp_dir.value);
         $("#hc-set-form").elements.placeholder_template.addEventListener("input", tplPreview);
+        $("#hc-set-form").addEventListener("input", (e) => {
+            const t = e.target;
+            if (t.dataset.catOn !== undefined) { root.querySelector('[data-cat-color="' + CSS.escape(t.dataset.catOn) + '"]').disabled = !t.checked; }
+            if (t.matches("[name^=ph_], [name^=show_], [data-cat-on], [data-cat-color], [name=name], [name=width], [name=height]") && t.name !== "ph_cache") previewSoon();
+        });
+        $("#hc-set-form").addEventListener("change", (e) => { if (e.target.matches("[data-cat-on], [name^=show_]")) previewSoon(); });
+        $("#hc-ph-num").addEventListener("change", previewSoon);
         $("#hc-set-form").elements.name.addEventListener("input", tplPreview);
         $("#hc-test").onclick = testConn;
         $("#hc-del").onclick = async () => {
@@ -1006,7 +1157,7 @@ window.BTTools.hyperdeck_clips = (function () {
             catch (e) { toast(e.message, "error"); }
             finally { b.disabled = false; }
         };
-        $("#hc-fill").onclick = fill;
+        $("#hc-fill").onclick = () => fill(false);
         $("#hc-reset").onclick = resetFlow;
         $("#hc-list-btn").onclick = openList;
         $("#hc-list-apply").onclick = applyList;
@@ -1065,25 +1216,24 @@ window.BTTools.hyperdeck_clips = (function () {
         app.addEventListener("dragover", (e) => {
             if (!hasFiles(e) || !view || !pid || e.target.closest("dialog")) return;
             e.preventDefault();
-            const s = e.target.closest(".hc-slot");
-            root.querySelectorAll(".hc-slot.drag").forEach((x) => { if (x !== s) x.classList.remove("drag"); });
-            if (s && canDeliver) s.classList.add("drag");
             e.dataTransfer.dropEffect = canDeliver ? "copy" : "none";
+            if (!canDeliver) return;
+            const s = e.target.closest(".hc-slot");
+            paintFill(s ? s.dataset.num : null, dragCount(e));
         });
         app.addEventListener("dragleave", (e) => {
-            const s = e.target.closest && e.target.closest(".hc-slot");
-            if (s && !s.contains(e.relatedTarget)) s.classList.remove("drag");
+            if (!e.relatedTarget || !app.contains(e.relatedTarget)) clearFill();
         });
         app.addEventListener("drop", (e) => {
             if (!hasFiles(e) || !view || !pid || e.target.closest("dialog")) return;
             e.preventDefault();
-            root.querySelectorAll(".hc-slot.drag").forEach((x) => x.classList.remove("drag"));
+            clearFill();
             if (!canDeliver) return toast("Vous n'avez pas le droit de livrer des clips", "error");
             const files = Array.from(e.dataTransfer.files || []);
             if (!files.length) return;
             const s = e.target.closest(".hc-slot");
             if (s && files.length === 1) return queueFile(s.dataset.num, files[0]);
-            bulkDrop(files);
+            bulkDrop(files, s ? s.dataset.num : null);
         });
         root.addEventListener("keydown", (e) => {
             const s = e.target.closest && e.target.closest(".hc-slot");

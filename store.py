@@ -22,6 +22,7 @@ DATA_DIR = os.environ.get("DATA_DIR", "/data")
 FILE = os.path.join(DATA_DIR, "players.json")
 INCOMING = os.path.join(DATA_DIR, "incoming")
 WORK = os.path.join(DATA_DIR, "work")
+CACHE = os.path.join(DATA_DIR, "cache")     # bouche-trous gardés (option par lecteur)
 
 LOCK = threading.RLock()
 _data = None
@@ -29,7 +30,7 @@ _data = None
 PLAYER_FIELDS = {
     "name": str, "host": str, "ftp_port": int, "ftp_user": str, "ftp_password": str,
     "ftp_dir": str, "tcp_port": int, "audio_channels": int, "protect_on_air": bool,
-    "placeholder_duration": int, "placeholder_template": str,
+    "placeholder_duration": int, "placeholder_template": str, "ph_cache": bool,
 }
 FORMAT_FIELDS = {"codec_tag": str, "width": int, "height": int, "fps": str, "field_order": str}
 
@@ -39,6 +40,7 @@ DEFAULT_PLAYER = {
     "name": "", "host": "", "ftp_port": 21, "ftp_user": "", "ftp_password": "",
     "ftp_dir": "", "tcp_port": 9993, "audio_channels": 2, "protect_on_air": True,
     "placeholder_duration": 10, "placeholder_template": DEFAULT_PH_TEMPLATE,
+    "ph_cache": False, "ph_style": None,
     "format": {"codec_tag": "apch", "width": 1920, "height": 1080, "fps": "25/1",
                "field_order": "tt"},
     "list": None,        # {filename, player, imported_at, imported_by, categories}
@@ -112,6 +114,9 @@ def apply_fields(p, body):
                     raise ValueError("valeur invalide pour format.%s" % k)
     p["name"] = (p["name"] or "").strip() or p["host"] or "Lecteur"
     p["ftp_dir"] = (p["ftp_dir"] or "").strip().strip("/")
+    if "ph_style" in body:
+        import media
+        p["ph_style"] = media.norm_style(body["ph_style"])
     p["placeholder_template"] = validate_template(p.get("placeholder_template") or DEFAULT_PH_TEMPLATE)
     p["placeholder_duration"] = max(1, min(600, int(p["placeholder_duration"] or 10)))
     p["audio_channels"] = max(0, min(16, int(p["audio_channels"] or 0)))

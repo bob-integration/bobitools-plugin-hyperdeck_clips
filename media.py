@@ -18,6 +18,7 @@ réencodage) est un geste PROPOSÉ à l'exploitant, qui sait d'où vient son fic
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 
@@ -172,43 +173,89 @@ def fix_field_order(src, dst, order="tt", timeout=1800):
         raise RuntimeError((p.stderr or "ffmpeg a échoué").strip()[-300:])
 
 
-def placeholder_key(slot, fmt, duration, audio_channels, player_name):
-    raw = json.dumps([slot.get("num"), slot.get("nom"), slot.get("cat"), player_name,
-                      dict(DEFAULT_FORMAT, **(fmt or {})), duration, audio_channels, 2],
-                     sort_keys=True, ensure_ascii=False)
+# Apparence des bouche-trous, réglable par lecteur. Défaut = le visuel d'origine : fond
+# noir, infos en gris, discret s'il part à l'antenne par erreur.
+DEFAULT_STYLE = {
+    "bg": "#000000", "fg": "#6E6E6E", "bg_by_cat": {},
+    "show": {"num": True, "nom": True, "cat": True, "lecteur": True, "mention": True},
+    "mention": "clip non livré",
+}
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def norm_style(style):
+    st = style or {}
+    out = {"bg": st.get("bg") if _HEX.match(str(st.get("bg") or "")) else DEFAULT_STYLE["bg"],
+           "fg": st.get("fg") if _HEX.match(str(st.get("fg") or "")) else DEFAULT_STYLE["fg"],
+           "bg_by_cat": {str(k): v for k, v in (st.get("bg_by_cat") or {}).items()
+                         if _HEX.match(str(v or ""))},
+           "show": {k: bool((st.get("show") or {}).get(k, d)) for k, d in DEFAULT_STYLE["show"].items()},
+           "mention": str(st.get("mention") if st.get("mention") is not None else DEFAULT_STYLE["mention"])[:120]}
+    return out
+
+
+def placeholder_key(slot, fmt, duration, audio_channels, player_name, style=None):
+    parts = [slot.get("num"), slot.get("nom"), slot.get("cat"), player_name,
+             dict(DEFAULT_FORMAT, **(fmt or {})), duration, audio_channels, 2]
+    st = norm_style(style)
+    # Le style n'entre dans l'empreinte que s'il diffère du défaut : les bouche-trous posés
+    # avant l'arrivée du réglage gardent leur empreinte (et ne passent pas « périmés »).
+    if st != norm_style(None):
+        parts.append({**st, "bg_cat": st["bg_by_cat"].get(slot.get("cat") or ""), "bg_by_cat": None})
+    raw = json.dumps(parts, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
-def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, timeout=600):
-    """Bouche-trou : fond noir, infos en gris, au format technique exact des vrais clips.
+def _filters(slot, player_name, style, w, h, tmp):
+    """Calques drawtext empilés et centrés verticalement selon les infos choisies."""
+    st = norm_style(style)
+    sh, fg, k = st["show"], st["fg"].replace("#", "0x"), h / 1080.0
+    sub = " · ".join(x for x in ((slot.get("cat") if sh["cat"] else ""),
+                                  (player_name if sh["lecteur"] else "")) if x)
+    lines = [(str(slot.get("num") or ""), FONT_BOLD, 150, 1.0) if sh["num"] else None,
+             (str(slot.get("nom") or ""), FONT_BOLD, 84, 0.85) if sh["nom"] else None,
+             (sub, FONT, 48, 0.7) if sub else None,
+             (st["mention"], FONT, 44, 0.7) if sh["mention"] and st["mention"].strip() else None]
+    lines = [l for l in lines if l and l[0].strip()]
+    heights = [size * 1.55 for _, _, size, _ in lines]
+    y = -sum(heights) / 2
+    out = []
+    for i, ((txt, font, size, alpha), hh) in enumerate(zip(lines, heights)):
+        tf = os.path.join(tmp, "l%d.txt" % i)
+        with open(tf, "w", encoding="utf-8") as fh:
+            fh.write(txt)
+        center = y + hh / 2
+        y += hh
+        out.append("drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=%s@%.2f:"
+                   "x=(w-text_w)/2:y=h/2-text_h/2+%d" % (font, tf, max(10, int(size * k)), fg, alpha,
+                                                       int(center * k)))
+    bg = st["bg_by_cat"].get(slot.get("cat") or "", st["bg"])
+    return out, bg.replace("#", "0x")
 
-    Visuel volontairement discret : s'il est rappelé par erreur, l'antenne voit un noir à
-    peine marqué, pas une mire. Les infos (numéro, nom, catégorie, « clip non livré »)
-    servent à l'exploitant qui le voit sur son retour.
-    """
+
+def render_preview(slot, fmt, player_name, style, dst, timeout=60):
+    """Une image PNG du bouche-trou (aperçu des réglages), sans encodage ProRes."""
+    f = dict(DEFAULT_FORMAT, **(fmt or {}))
+    w, h = int(f["width"]), int(f["height"])
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(dst) or None) as tmp:
+        filters, bg = _filters(slot, player_name, style, w, h, tmp)
+        _run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+              "color=c=%s:s=%dx%d" % (bg, w, h), "-frames:v", "1",
+              "-vf", ",".join(filters + ["scale=960:-2"]) if filters else "scale=960:-2", dst], timeout)
+    return dst
+
+
+def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, timeout=600, style=None):
+    """Bouche-trou au format technique exact des vrais clips. Apparence : `style`
+    (défaut : fond noir, infos en gris — discret s'il est rappelé par erreur)."""
     f = dict(DEFAULT_FORMAT, **(fmt or {}))
     pr = PRORES.get(f["codec_tag"])
     if not pr:
         raise RuntimeError("bouche-trou : codec %s non géré" % f["codec_tag"])
     w, h = int(f["width"]), int(f["height"])
-    k = h / 1080.0
     interlaced = f["field_order"] in ("tt", "bb")
-    lines = [
-        (str(slot.get("num") or ""), FONT_BOLD, 150, "0x6E6E6E", -170),
-        (str(slot.get("nom") or ""), FONT_BOLD, 84, "0x5C5C5C", 0),
-        (" · ".join(x for x in (slot.get("cat"), player_name) if x), FONT, 48, "0x4A4A4A", 110),
-        ("clip non livré", FONT, 44, "0x4A4A4A", 200),
-    ]
     with tempfile.TemporaryDirectory(dir=os.path.dirname(dst) or None) as tmp:
-        filters = []
-        for i, (txt, font, size, color, dy) in enumerate(lines):
-            tf = os.path.join(tmp, "l%d.txt" % i)
-            with open(tf, "w", encoding="utf-8") as fh:
-                fh.write(txt)
-            filters.append(
-                "drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=%s:"
-                "x=(w-text_w)/2:y=(h-text_h)/2+%d" % (font, tf, max(10, int(size * k)), color,
-                                                      int(dy * k)))
+        filters, bg = _filters(slot, player_name, style, w, h, tmp)
         if interlaced:
             filters.append("setfield=%s" % ("tff" if f["field_order"] == "tt" else "bff"))
         filters.append("format=%s" % pr["pix"])
@@ -216,7 +263,7 @@ def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, ti
         # (≈ 0,2 s au lieu de ~5 s pour 10 s de clip), puis on la répète par copie de flux.
         one = os.path.join(tmp, "one.mov")
         cmd = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
-               "-f", "lavfi", "-i", "color=c=black:s=%dx%d:r=%s" % (w, h, f["fps"]),
+               "-f", "lavfi", "-i", "color=c=%s:s=%dx%d:r=%s" % (bg, w, h, f["fps"]),
                "-frames:v", "1", "-vf", ",".join(filters),
                "-c:v", "prores_ks", "-profile:v", str(pr["profile"]), "-vendor", "apl0",
                "-pix_fmt", pr["pix"]]

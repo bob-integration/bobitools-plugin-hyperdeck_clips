@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.6.0",
+   "date": "2026-11-15",
+   "notes": "APPARENCE DES BOUCHE-TROUS réglable par lecteur, avec APERÇU en direct dans les réglages : couleur de fond, couleur du texte, fond PROPRE À CHAQUE CATÉGORIE, infos affichées (numéro, nom, catégorie, lecteur, mention) et texte de la mention ; les lignes affichées se recentrent. Changer l'apparence (ou le format, la durée, l'audio) rend les bouche-trous existants « périmés » et l'outil propose de les refaire. CACHE : option « Garder les bouche-trous sur le serveur » (désactivée par défaut, taille estimée affichée, le cache n'est plus alimenté sous 2 Go libres), taille du cache dans la ligne Espace et bouton pour le vider. DÉPÔT GROUPÉ : pendant le survol, les cases que les fichiers rempliront s'allument à partir de la case visée (cases déjà livrées sautées) avec un bandeau « 3 fichiers → 102 à 202 » ; au lâcher, tableau fichier → case avec deux modes (à la suite dans l'ordre naturel des noms à partir d'une case choisie, ou selon le numéro en tête du nom), clips remplacés et fichiers sans case signalés."
+  },
+  {
    "version": "0.5.0",
    "date": "2026-11-15",
    "notes": "DÉPLACER UN CLIP d'une case à l'autre par glisser-déposer (ou « Déplacer vers… » dans le détail d'un emplacement, sans souris). Case vide : le clip est RENOMMÉ avec le nouveau numéro (il ne repasse pas par le réseau) et la case quittée reçoit son bouche-trou. Case déjà occupée par un clip : ÉCHANGER (trois renommages, rien d'envoyé ni de supprimé) ou REMPLACER (le clip de la cible est supprimé du HyperDeck). Aucun clip ne peut être perdu : le clip déplacé part d'abord sous un nom temporaire en fin de liste, rien n'est supprimé avant, et un refus de la machine en cours de route déclenche un retour en arrière (vérifié : renommage refusé → tout revient en place, aucun temporaire). Garde antenne et liste intacte comme pour une livraison. Historique : « reçu de », « déplacé vers », « échangé avec », avec la version."

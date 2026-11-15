@@ -110,6 +110,7 @@ def _storage(p, sc):
     du = shutil.disk_usage(store.DATA_DIR)
     out = {"server": {"total": du.total, "used": du.used, "free": du.free,
                       "in_transit": _dir_bytes(store.INCOMING) + _dir_bytes(store.WORK),
+                      "cache": _dir_bytes(store.CACHE),
                       "margin": SPACE_MARGIN}}
     if sc and sc["ftp"].get("ok"):
         sizes = sc["ftp"].get("sizes") or {}
@@ -267,7 +268,14 @@ class Handler(BaseHTTPRequestHandler):
                 engine.scan(pid)
                 return self._send(200, _view(_player(pid)))
             if m == "POST" and P[2] == "fill":
-                return self._fill(pid)
+                return self._fill(pid, self._json())
+            if m == "GET" and P[2] == "ph-preview":
+                # GET : lecture pure, non journalisée (l'aperçu suit chaque retouche).
+                try:
+                    body = json.loads(q.get("q") or "{}")
+                except ValueError:
+                    raise _err(400, "paramètres d'aperçu invalides")
+                return self._ph_preview(pid, body)
             if m == "POST" and P[2] == "reset":
                 return self._reset(pid, self._json())
             if m == "POST" and P[2] == "test":
@@ -307,6 +315,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"ok": True})
             if m == "POST" and P[2] == "remote" and P[3] == "delete":
                 return self._delete_remote(pid, self._json())
+        if P[0] == "cache" and P[1] == "clear" and m == "POST":
+            n = 0
+            for f in os.listdir(store.CACHE) if os.path.isdir(store.CACHE) else []:
+                try:
+                    os.remove(os.path.join(store.CACHE, f))
+                    n += 1
+                except OSError:
+                    pass
+            return self._send(200, {"ok": True, "removed": n})
         if P[0] == "jobs" and P[1] and m == "POST":
             fn = {"cancel": engine.cancel, "force": engine.force}.get(P[2])
             if fn:
@@ -448,13 +465,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- bouche-trous, suppression ----------------------------------------------
 
-    def _fill(self, pid):
+    def _fill(self, pid, body=None):
+        body = body or {}
         p = _player(pid)
         sc = engine.scan(pid)
         if not sc["ftp"].get("ok"):
             raise _err(502, "FTP injoignable : %s" % sc["ftp"].get("error"))
         queued = {j["num"] for j in engine.jobs(pid) if j["state"] not in ("done", "error", "cancelled")}
-        plan = [x for x in engine.fill_plan(p, sc) if x[0] not in queued]
+        plan = [x for x in engine.fill_plan(p, sc, redo=bool(body.get("redo"))) if x[0] not in queued]
         jobs = [engine.enqueue(pid, kind, num=n, original=old, by=self._user()) for n, kind, old in plan]
         return self._send(200, {"ok": True, "queued": len(jobs),
                                 "renamed": sum(1 for x in plan if x[1] == "rename")})
@@ -525,6 +543,33 @@ class Handler(BaseHTTPRequestHandler):
         job = engine.enqueue(pid, "move", num=a, target=b, mode="swap" if mode == "swap" else "move",
                              original=ra.get("original"), by=self._user())
         return self._send(200, {"ok": True, "job": job})
+
+    def _ph_preview(self, pid, body):
+        """PNG du bouche-trou d'un emplacement, avec le style ENVOYÉ (non enregistré) :
+        l'aperçu suit les réglages pendant qu'on les modifie."""
+        p = _player(pid)
+        slot = next((s for s in p["slots"] if s["num"] == str(body.get("num") or "")), None) \
+            or (p["slots"][0] if p["slots"] else {"num": "104", "nom": "Off 4", "cat": "Thème 1"})
+        fmt = dict(p["format"], **(body.get("format") or {}))
+        os.makedirs(store.WORK, exist_ok=True)
+        fd, path = tempfile.mkstemp(dir=store.WORK, suffix=".png")
+        os.close(fd)
+        try:
+            media.render_preview(slot, fmt, body.get("lecteur") or p["name"],
+                                 media.norm_style(body.get("style")), path)
+            with open(path, "rb") as fh:
+                data = fh.read()
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _delete_remote(self, pid, body):
         name = body.get("name") or ""

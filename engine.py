@@ -24,6 +24,7 @@ sur la même machine se partageraient son lien et son disque sans rien gagner.
 import ftplib
 import os
 import queue
+import shutil
 import secrets
 import threading
 import time
@@ -35,6 +36,7 @@ import store
 
 SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "60") or 0)
 FTP_TIMEOUT = float(os.environ.get("FTP_TIMEOUT", "20") or 20)
+CACHE_MIN_FREE = 2 * 1024 ** 3   # en dessous, on n'ajoute plus rien au cache des bouche-trous
 AIR_WAIT_MAX = 600          # au-delà, l'envoi est mis en échec : on ne garde pas un échange en suspens 1 h
 
 PRIORITY = {"deliver": 0, "delete": 1, "move": 1, "rename": 2, "placeholder": 3}
@@ -232,7 +234,7 @@ def _log(j, msg):
 
 
 def _discard_local(j):
-    if j.get("local") and j["kind"] != "delete":
+    if j.get("local") and j["kind"] != "delete" and not j.get("keep_local"):
         try:
             os.remove(j["local"])
         except OSError:
@@ -286,11 +288,28 @@ def _render(j, p):
     if not slot:
         raise RuntimeError("emplacement %s absent de la liste" % j["num"])
     j["state"] = "rendering"
-    _log(j, "fabrication du bouche-trou")
-    os.makedirs(store.WORK, exist_ok=True)
-    dst = os.path.join(store.WORK, "ph_%s.mov" % j["id"])
-    media.render_placeholder(slot, p["format"], p["placeholder_duration"],
-                             p["audio_channels"], p["name"], dst)
+    key = ph_key(p, slot)
+    cached = os.path.join(store.CACHE, "ph_%s.mov" % key)
+    if p.get("ph_cache") and os.path.exists(cached):
+        _log(j, "bouche-trou repris du cache du serveur")
+        dst = cached
+        j["keep_local"] = True
+    else:
+        _log(j, "fabrication du bouche-trou")
+        os.makedirs(store.WORK, exist_ok=True)
+        dst = os.path.join(store.WORK, "ph_%s.mov" % j["id"])
+        media.render_placeholder(slot, p["format"], p["placeholder_duration"],
+                                 p["audio_channels"], p["name"], dst, style=p.get("ph_style"))
+        if p.get("ph_cache"):
+            # Gardé seulement s'il reste de la place : le cache ne doit jamais empêcher un
+            # dépôt (chaque clip transite en entier par ce disque).
+            if shutil.disk_usage(store.DATA_DIR).free - os.path.getsize(dst) > CACHE_MIN_FREE:
+                os.makedirs(store.CACHE, exist_ok=True)
+                os.replace(dst, cached)
+                dst = cached
+                j["keep_local"] = True
+            else:
+                _log(j, "cache non alimenté : place insuffisante sur le serveur")
     j["local"] = dst
     j["size"] = os.path.getsize(dst)
     j["remote"] = ph_name(p, slot)
@@ -307,7 +326,7 @@ def ph_key(p, slot):
     """Empreinte du CONTENU d'un bouche-trou (ce qui est dessiné et son format). Le nom du
     fichier n'y entre pas : changer le modèle de nom n'oblige qu'à renommer."""
     return media.placeholder_key(slot, p["format"], p["placeholder_duration"],
-                                 p["audio_channels"], p["name"])
+                                 p["audio_channels"], p["name"], p.get("ph_style"))
 
 
 def _check_cancel(j):
@@ -700,7 +719,11 @@ def evaluate(p, sc):
                 if rec and rec.get("kind") == "clip" and n == rec.get("remote"):
                     st = "delivered"
                 elif n == ph_name(p, s):
-                    st = "empty"
+                    # Bon nom ; contenu périmé si l'empreinte enregistrée diffère (style,
+                    # format, durée…). Sans empreinte (pose ancienne) : on ne sait pas, on
+                    # ne signale rien — « Refaire tous les bouche-trous » est là pour ça.
+                    st = "stale_placeholder" if rec and rec.get("kind") == "placeholder" \
+                        and rec.get("key") and rec.get("key") != ph_key(p, s) else "empty"
                 elif (rec and rec.get("kind") == "placeholder" and n == rec.get("remote")) \
                         or store.is_placeholder(n, s, p.get("placeholder_template")):
                     st = "stale_placeholder"
@@ -736,7 +759,7 @@ def evaluate(p, sc):
     return out
 
 
-def fill_plan(p, sc):
+def fill_plan(p, sc, redo=False):
     """Emplacements à combler d'après une vérification : [(num, "placeholder"|"rename", ancien)].
 
     Un bouche-trou périmé dont le CONTENU est toujours le bon (seul le modèle de nom a
@@ -748,6 +771,8 @@ def fill_plan(p, sc):
         e = ev["slots"][s["num"]]
         if e["status"] == "missing":
             out.append((s["num"], "placeholder", None))
+        elif redo and e["status"] == "empty":
+            out.append((s["num"], "placeholder", e["files"][0]))
         elif e["status"] == "stale_placeholder":
             rec = p["files"].get(s["num"]) or {}
             old = e["files"][0]
