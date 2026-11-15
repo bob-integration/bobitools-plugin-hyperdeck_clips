@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.4.0",
+   "date": "2026-11-15",
+   "notes": "NOM DES BOUCHE-TROUS RÉGLABLE par lecteur (Réglages → Bouche-trous) : modèle à variables {num} {nom} {cat} {id} {lecteur}, défaut « {num} - VIDE - {nom} », aperçu en direct. Le modèle doit commencer par {num} suivi d'un séparateur (c'est le numéro en tête qui classe le fichier) ; un conseil s'affiche s'il ne contient plus de mot distinguant un bouche-trou d'un vrai clip. Changer le modèle RENOMME les bouche-trous en place (RNFR/RNTO : ni fabrication ni transfert, aucun rang déplacé) ; seuls ceux dont le contenu a changé (nom ou catégorie du CSV, format, durée, audio) sont refabriqués — empreinte du contenu mémorisée à la pose, et reconnaissance des bouche-trous posés avant cette version. CSV : aide « Comment construire le CSV ? », CSV EXEMPLE téléchargeable (deux Players, catégories, numéros à largeur égale) et EXPORT de la liste actuelle d'un lecteur (UTF-8 avec BOM, lisible par Excel)."
+  },
+  {
    "version": "0.3.0",
    "date": "2026-11-15",
    "notes": "ESPACE DISQUE AFFICHÉ sous l'en-tête du lecteur : serveur (libre / total, en transit, taille de clip maximale acceptée — chaque clip y transite en entier avant le FTP) et HyperDeck (nombre et taille des clips relevés par FTP, volume, temps d'enregistrement restant annoncé par le protocole, qui ne donne pas d'octets libres). Un dépôt trop gros pour le serveur est refusé AVANT l'envoi. RETRAIT (remettre le bouche-trou) : la suppression FTP passait par ftplib.delete, qui n'accepte que 250/200 ; même famille que le RNFR=200 du HyperDeck — la suppression accepte désormais tout 2xx/3xx et n'est tenue pour faite qu'après relecture du dossier. « Retirer » aussi proposé sur un emplacement en double (nettoie tous ses fichiers). Le détail d'un emplacement montre le dernier échec et le journal du transfert."

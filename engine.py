@@ -37,7 +37,7 @@ SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "60") or 0)
 FTP_TIMEOUT = float(os.environ.get("FTP_TIMEOUT", "20") or 20)
 AIR_WAIT_MAX = 600          # au-delà, l'envoi est mis en échec : on ne garde pas un échange en suspens 1 h
 
-PRIORITY = {"deliver": 0, "delete": 1, "placeholder": 2}
+PRIORITY = {"deliver": 0, "delete": 1, "rename": 2, "placeholder": 3}
 
 _jobs = {}                  # id → job (dict)
 _queues = {}                # pid → queue.Queue
@@ -170,7 +170,7 @@ def enqueue(pid, kind, num=None, local=None, original=None, remote=None, by="", 
             # gagne : on l'annule. (Un bouche-trou déjà en cours d'envoi, lui, finit d'abord,
             # puis la livraison le remplace — l'ordre final reste le bon.)
             for o in _jobs.values():
-                if o["player"] == pid and o["num"] == num and o["kind"] == "placeholder" and o["state"] == "queued":
+                if o["player"] == pid and o["num"] == num and o["kind"] in ("placeholder", "rename") and o["state"] == "queued":
                     o["state"], o["ended"] = "cancelled", time.time()
                     _log(o, "annulé : un clip a été livré sur cet emplacement")
         _jobs[job["id"]] = job
@@ -259,6 +259,8 @@ def _worker(pid):
                 _render(j, p)
             if j["kind"] == "delete":
                 _delete_remote(j, p)
+            elif j["kind"] == "rename":
+                _rename_placeholder(j, p)
             else:
                 _swap(j, p)
             j["state"] = "done"
@@ -288,9 +290,21 @@ def _render(j, p):
                              p["audio_channels"], p["name"], dst)
     j["local"] = dst
     j["size"] = os.path.getsize(dst)
-    j["remote"] = store.placeholder_name(slot)
+    j["remote"] = ph_name(p, slot)
+    j["key"] = ph_key(p, slot)
     j["label"] = media.format_label(p["format"])
     j["state"] = "sending"
+
+
+def ph_name(p, slot):
+    return store.placeholder_name(slot, p.get("placeholder_template"), p["name"])
+
+
+def ph_key(p, slot):
+    """Empreinte du CONTENU d'un bouche-trou (ce qui est dessiné et son format). Le nom du
+    fichier n'y entre pas : changer le modèle de nom n'oblige qu'à renommer."""
+    return media.placeholder_key(slot, p["format"], p["placeholder_duration"],
+                                 p["audio_channels"], p["name"])
 
 
 def _check_cancel(j):
@@ -423,7 +437,8 @@ def _record(j, p, olds):
         if j["kind"] == "placeholder":
             entry.update(action="retiré" if prev and prev.get("kind") == "clip" else "bouche-trou")
             pl["files"][num] = {"kind": "placeholder", "remote": j["remote"], "at": entry["at"],
-                                "by": j["by"], "size": j["size"], "label": j["label"]}
+                                "by": j["by"], "size": j["size"], "label": j["label"],
+                                "key": j.get("key")}
         else:
             v = max([h.get("v") or 0 for h in hist] + [0]) + 1
             entry.update(action="remplacé" if v > 1 else "livré", v=v, original=j["original"],
@@ -432,6 +447,38 @@ def _record(j, p, olds):
                                 "v": v, "at": entry["at"], "by": j["by"], "size": j["size"],
                                 "label": j["label"], "summary": j.get("summary")}
         hist.append(entry)
+    store.mutate(p["id"], fn)
+
+
+def _rename_placeholder(j, p):
+    """Bouche-trou au bon contenu mais à l'ancien nom : RNFR/RNTO, rien d'autre."""
+    slot = next((s for s in p["slots"] if s["num"] == j["num"]), None)
+    if not slot:
+        raise RuntimeError("emplacement %s absent de la liste" % j["num"])
+    old, new = j["original"], ph_name(p, slot)
+    j["remote"] = new
+    if store.num_of(new) != j["num"]:
+        raise RuntimeError("nom calculé sans le numéro en tête : %s" % new)
+    _wait_air(j, p, [old])
+    j["state"] = "swapping"
+    _log(j, "renommage : %s → %s" % (old, new))
+    ftp = ftp_open(p)
+    try:
+        ftp_rename(ftp, old, new)
+        names = ftp_names(ftp)
+    finally:
+        _close(ftp)
+    _listing[p["id"]] = (time.time(), names)
+    if new not in names or old in names:
+        raise RuntimeError("renommage non constaté sur le HyperDeck")
+
+    def fn(pl):
+        rec = pl["files"].get(j["num"]) or {}
+        rec["remote"] = new
+        pl["files"][j["num"]] = rec
+        pl["history"].setdefault(j["num"], []).append(
+            {"at": store.now(), "by": j["by"], "action": "bouche-trou renommé", "remote": new,
+             "replaced": [old]})
     store.mutate(p["id"], fn)
 
 
@@ -527,12 +574,13 @@ def evaluate(p, sc):
                 st = "duplicate"
             else:
                 n = names[0]
-                if n == store.placeholder_name(s):
-                    st = "empty"
-                elif store.is_placeholder(n, s["num"]):
-                    st = "stale_placeholder"
-                elif rec and rec.get("kind") == "clip" and n == rec.get("remote"):
+                if rec and rec.get("kind") == "clip" and n == rec.get("remote"):
                     st = "delivered"
+                elif n == ph_name(p, s):
+                    st = "empty"
+                elif (rec and rec.get("kind") == "placeholder" and n == rec.get("remote")) \
+                        or store.is_placeholder(n, s, p.get("placeholder_template")):
+                    st = "stale_placeholder"
                 else:
                     st = "foreign_file"
             out["slots"][s["num"]] = {"status": st, "files": names}
@@ -566,10 +614,29 @@ def evaluate(p, sc):
 
 
 def fill_plan(p, sc):
-    """Emplacements à combler (absents ou bouche-trou périmé) d'après une vérification."""
+    """Emplacements à combler d'après une vérification : [(num, "placeholder"|"rename", ancien)].
+
+    Un bouche-trou périmé dont le CONTENU est toujours le bon (seul le modèle de nom a
+    changé) est simplement RENOMMÉ : pas de fabrication ni de transfert, et le numéro en
+    tête ne bouge pas, donc aucun rang non plus."""
     ev = evaluate(p, sc)
-    return [s["num"] for s in p["slots"]
-            if ev["slots"][s["num"]]["status"] in ("missing", "stale_placeholder")]
+    out = []
+    for s in p["slots"]:
+        e = ev["slots"][s["num"]]
+        if e["status"] == "missing":
+            out.append((s["num"], "placeholder", None))
+        elif e["status"] == "stale_placeholder":
+            rec = p["files"].get(s["num"]) or {}
+            old = e["files"][0]
+            same = rec.get("kind") == "placeholder" and rec.get("remote") == old \
+                and rec.get("key") and rec.get("key") == ph_key(p, s)
+            # Bouche-trous posés avant la 0.4.0 (sans empreinte) : leur nom au modèle par
+            # défaut dit le nom du CSV qu'ils portent ; s'il est inchangé, le contenu aussi.
+            if rec.get("kind") == "placeholder" and not rec.get("key") \
+                    and old == store.placeholder_name(s, store.DEFAULT_PH_TEMPLATE, p["name"]):
+                same = True
+            out.append((s["num"], "rename" if same else "placeholder", e["files"][0]))
+    return out
 
 
 # ── Fichiers refusés mais corrigeables ──────────────────────────────────────

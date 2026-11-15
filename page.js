@@ -280,15 +280,17 @@ window.BTTools.hyperdeck_clips = (function () {
                 + "</span></div>");
         });
         const jobs = (view.jobs || []).filter((j) => j.state !== "cancelled");
-        const placeholders = jobs.filter((j) => j.kind === "placeholder" && j.state === "queued");
-        jobs.filter((j) => !(j.kind === "placeholder" && j.state === "queued")).forEach((j) => {
+        const isBulk = (j) => (j.kind === "placeholder" || j.kind === "rename") && j.state === "queued";
+        const placeholders = jobs.filter(isBulk);
+        jobs.filter((j) => !isBulk(j)).forEach((j) => {
             const pct = j.size ? Math.min(100, 100 * j.sent / j.size) : 0;
             const act = [];
             if (["queued", "rendering", "sending", "waiting_air", "blocked"].includes(j.state) && canDeliver)
                 act.push('<button class="btn" type="button" data-cancel-job="' + esc(j.id) + '">Annuler</button>');
             if (["waiting_air", "blocked"].includes(j.state) && canDeliver)
                 act.push('<button class="btn btn-orange" type="button" data-force-job="' + esc(j.id) + '" title="Échange immédiat, même si le clip est à l\'antenne">Forcer</button>');
-            const label = j.kind === "delete" ? "suppression de " + j.remote : j.kind === "placeholder" ? "bouche-trou" : (j.original || j.remote);
+            const label = j.kind === "delete" ? "suppression de " + j.remote : j.kind === "placeholder" ? "bouche-trou"
+                : j.kind === "rename" ? "renommage du bouche-trou" : (j.original || j.remote);
             rows.push('<div class="hc-xfer"><span class="hc-num-l">' + esc(j.num || "—") + '</span><span class="hc-xfer-t" title="' + esc(j.remote || "") + '">'
                 + esc(label) + '</span><span class="hc-bar-p ftp"><i style="--p:' + (j.state === "done" ? 1 : pct / 100) + '"></i></span><span class="hc-xfer-d">'
                 + '<span class="hc-badge ' + (j.state === "error" ? "bad" : ["waiting_air", "blocked"].includes(j.state) ? "warn" : "info") + '">' + esc(JOB[j.state] || j.state) + "</span> "
@@ -621,6 +623,9 @@ window.BTTools.hyperdeck_clips = (function () {
         f.dataset.mode = isNew ? "new" : "edit";
         $("#hc-set-title").textContent = isNew ? "Nouveau lecteur" : "Réglages — " + p.name;
         ["name", "host", "ftp_port", "ftp_user", "ftp_dir", "tcp_port", "placeholder_duration", "audio_channels"].forEach((k) => { f.elements[k].value = p[k] == null ? "" : p[k]; });
+        f.elements.placeholder_template.value = p.placeholder_template || "{num} - VIDE - {nom}";
+        f.dataset.tpl = f.elements.placeholder_template.value;
+        tplPreview();
         f.elements.ftp_password.value = "";
         f.elements.ftp_password.placeholder = p.has_password ? "(inchangé)" : "(aucun)";
         ["codec_tag", "width", "height", "fps", "field_order"].forEach((k) => { f.elements[k].value = p.format[k]; });
@@ -638,6 +643,7 @@ window.BTTools.hyperdeck_clips = (function () {
             name: f.name.value.trim(), host: f.host.value.trim(), ftp_port: +f.ftp_port.value || 21, ftp_user: f.ftp_user.value.trim(),
             ftp_dir: f.ftp_dir.value.trim(), tcp_port: +f.tcp_port.value || 9993, placeholder_duration: +f.placeholder_duration.value || 10,
             audio_channels: +f.audio_channels.value || 0, protect_on_air: f.protect_on_air.checked,
+            placeholder_template: f.placeholder_template.value.trim(),
             format: { codec_tag: f.codec_tag.value, width: +f.width.value, height: +f.height.value, fps: f.fps.value, field_order: f.field_order.value },
         };
         if (f.ftp_password.value) b.ftp_password = f.ftp_password.value;
@@ -657,14 +663,38 @@ window.BTTools.hyperdeck_clips = (function () {
                 toast("Lecteur ajouté. Importez maintenant sa liste de clips.", "info");
             } else {
                 const before = JSON.stringify(view.player.format);
+                const tplChanged = (view.player.placeholder_template || "") !== body.placeholder_template;
                 await ctx.api("players/" + pid, { method: "PUT", body });
                 $("#hc-set-dlg").close();
                 await loadView();
-                if (before !== JSON.stringify(body.format))
+                if (tplChanged && view.slots.length) {
+                    await ctx.api("players/" + pid + "/scan", { method: "POST", body: {} }).catch(() => {});
+                    await loadView();
+                    const stale = view.slots.filter((s) => s.status === "stale_placeholder").length;
+                    if (stale && canDeliver) msg("Nom des bouche-trous modifié", "<p>" + stale + " bouche-trou(s) portent encore l'ancien nom. Les renommer maintenant ? "
+                        + "Ceux dont le contenu n'a pas changé sont simplement renommés sur le HyperDeck (aucun envoi, aucun rang déplacé).</p>",
+                        [{ label: "Renommer " + stale + " bouche-trou(s)", cls: "btn-green", fn: fill }]);
+                    else toast("Réglages enregistrés", "info");
+                } else if (before !== JSON.stringify(body.format))
                     toast("Format modifié : les bouche-trous déjà posés restent dans l'ancien format. « Combler les vides » ne refait que les absents ; retirez-les pour les refaire.", "warning");
                 else toast("Réglages enregistrés", "info");
             }
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
+    }
+
+    // Aperçu du nom des bouche-trous, calculé comme le serveur (variables remplacées).
+    function tplPreview() {
+        const f = $("#hc-set-form").elements, out = $("#hc-tpl-preview");
+        const s = (view && view.slots && view.slots[0]) || { num: "104", nom: "Off 4", cat: "Thème 1", id: "4" };
+        const v = { num: s.num, nom: s.nom || "clip", cat: s.cat || "", id: s.id || "", lecteur: f.name.value || (view ? view.player.name : "") };
+        const t = f.placeholder_template.value.trim().replace(/\.mov$/i, "");
+        let err = "";
+        if (!t.startsWith("{num}")) err = "doit commencer par {num} (c'est lui qui place le fichier au bon rang)";
+        else if (!t.slice(5) || /^[\d{]/.test(t.slice(5))) err = "mettez un séparateur après {num}";
+        else { const bad = (t.match(/\{([^{}]*)\}/g) || []).map((x) => x.slice(1, -1)).filter((x) => !(x in v)); if (bad.length) err = "variable inconnue : {" + bad[0] + "}"; }
+        out.innerHTML = err ? '<span class="hc-badge bad">' + esc(err) + "</span>"
+            : 'Exemple : <span class="hc-mono">' + esc(t.replace(/\{([^{}]*)\}/g, (m, k) => v[k]).replace(/\s{2,}/g, " ") + ".mov") + "</span>"
+              + (/vide|bouche|non livr|empty|spare/i.test(t) ? "" : ' <span class="hc-badge warn">conseil : gardez un mot comme « VIDE » pour distinguer un bouche-trou d\'un vrai clip</span>');
     }
 
     async function browse(path) {
@@ -700,8 +730,45 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-list-out").innerHTML = view && view.slots.length
             ? '<p class="hc-note">Liste actuelle : ' + view.slots.length + " clips. Un nouvel import montre les écarts avant de les appliquer ; les fichiers déjà livrés restent liés à leur numéro.</p>" : "";
         $("#hc-list-apply").hidden = true;
+        $("#hc-csv-export").hidden = !(view && view.slots.length);
         $("#hc-csv").value = "";
         $("#hc-list-dlg").showModal();
+    }
+
+    // CSV : UTF-8 avec BOM (Excel l'ouvre alors sans casser les accents), séparateur « ; ».
+    function downloadCsv(name, rows) {
+        const q = (v) => { v = String(v == null ? "" : v); return /[;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+        const text = "\ufeff" + rows.map((r) => r.map(q).join(";")).join("\r\n") + "\r\n";
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+        a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+
+    function exampleCsv() {
+        downloadCsv("Liste_Clips_exemple.csv", [
+            ["ID", "Player", "Catégorie", "Numéro", "Nom"],
+            [1, "P1", "Thème 1", "101", "Off 1"],
+            [2, "P1", "Thème 1", "102", "Off 2"],
+            [3, "P1", "Thème 1", "103", "Interview Dupont"],
+            [4, "P1", "Thème 2", "201", "Off 1"],
+            [5, "P1", "Thème 2", "202", "Reportage"],
+            [6, "P1", "Liners", "501", "Liner 1"],
+            [7, "P1", "Début", "900", "Générique"],
+            [8, "P2", "Habillage", "101", "Virgule 1"],
+            [9, "P2", "Habillage", "102", "Virgule 2"],
+            [10, "P2", "Jingles", "201", "Jingle entrée"],
+        ]);
+    }
+
+    function exportCsv() {
+        if (!view || !view.slots.length) return toast("Ce lecteur n'a pas encore de liste", "warning");
+        const l = view.player.list || {};
+        const rows = [["ID", "Player", "Catégorie", "Numéro", "Nom"]];
+        (view.categories || []).forEach((c) => view.slots.filter((x) => x.cat === c)
+            .forEach((x) => rows.push([x.id || "", x.player || l.player || "", x.cat, x.num, x.nom])));
+        downloadCsv("Liste_Clips_" + view.player.name.replace(/[^\w.-]+/g, "_") + ".csv", rows);
     }
 
     async function readCsv(file) {
@@ -760,7 +827,7 @@ window.BTTools.hyperdeck_clips = (function () {
     async function fill() {
         try {
             const r = await ctx.api("players/" + pid + "/fill", { method: "POST", body: {} });
-            toast(r.queued ? r.queued + " bouche-trou(s) en file" : "Rien à combler : tous les emplacements ont leur fichier", "info");
+            toast(r.queued ? r.queued + " bouche-trou(s) en file" + (r.renamed ? " (dont " + r.renamed + " simple(s) renommage(s))" : "") : "Rien à combler : tous les emplacements ont leur fichier", "info");
             await loadView(); schedule();
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
     }
@@ -872,6 +939,8 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-settings-btn").onclick = () => openSettings(false);
         $("#hc-set-form").onsubmit = saveSettings;
         $("#hc-browse").onclick = () => browse($("#hc-set-form").elements.ftp_dir.value);
+        $("#hc-set-form").elements.placeholder_template.addEventListener("input", tplPreview);
+        $("#hc-set-form").elements.name.addEventListener("input", tplPreview);
         $("#hc-test").onclick = testConn;
         $("#hc-del").onclick = async () => {
             if (!(await confirmDlg("Supprimer le lecteur", "Supprimer « " + esc(view.player.name) + " », sa liste et son historique ? Rien n'est effacé sur le HyperDeck.", "Supprimer"))) return;
@@ -890,6 +959,8 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-reset").onclick = resetFlow;
         $("#hc-list-btn").onclick = openList;
         $("#hc-list-apply").onclick = applyList;
+        $("#hc-csv-example").onclick = exampleCsv;
+        $("#hc-csv-export").onclick = exportCsv;
         $("#hc-csv").onchange = (e) => e.target.files[0] && readCsv(e.target.files[0]);
         const drop = $("#hc-csv-drop");
         drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });

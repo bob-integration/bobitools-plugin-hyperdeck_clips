@@ -92,6 +92,12 @@
       </div>
       <h4>Bouche-trous</h4>
       <div class="hc-grid">
+        <label for="hc-s-tpl">Nom des fichiers</label>
+        <input id="hc-s-tpl" name="placeholder_template" class="hc-mono" placeholder="{num} - VIDE - {nom}" autocomplete="off" spellcheck="false">
+        <div></div>
+        <div class="hc-note">Variables : <span class="hc-mono">{num}</span> numéro, <span class="hc-mono">{nom}</span> nom du clip,
+          <span class="hc-mono">{cat}</span> catégorie, <span class="hc-mono">{id}</span> ID du CSV, <span class="hc-mono">{lecteur}</span> nom du lecteur.
+          Doit commencer par <span class="hc-mono">{num}</span> suivi d'un séparateur ; « .mov » est ajouté.<br><span id="hc-tpl-preview"></span></div>
         <label for="hc-s-dur">Durée (secondes)</label><input id="hc-s-dur" name="placeholder_duration" type="number" min="1" max="600" class="hc-num">
         <label for="hc-s-audio">Pistes audio (silence)</label><input id="hc-s-audio" name="audio_channels" type="number" min="0" max="16" class="hc-num">
       </div>
@@ -116,6 +122,20 @@
         <input type="file" id="hc-csv" accept=".csv,text/csv,text/plain" hidden>
         <span>Déposez le CSV ici, ou cliquez pour le choisir.<br><small>Colonnes : Numéro et Nom obligatoires ; Catégorie, ID, Player facultatives. Séparateur « ; » ou « , ».</small></span>
       </label>
+      <details class="hc-help">
+        <summary>Comment construire le CSV ?</summary>
+        <ul>
+          <li>Une ligne par clip attendu, une ligne d'en-tête. Séparateur « ; » (ou « , »), encodage UTF-8 de préférence (un export Excel est aussi lu).</li>
+          <li><strong>Numéro</strong> et <strong>Nom</strong> sont obligatoires. <strong>Catégorie</strong>, <strong>ID</strong> et <strong>Player</strong> sont facultatifs ; les autres colonnes sont ignorées.</li>
+          <li>Les numéros doivent tous avoir <strong>le même nombre de chiffres</strong> (101…918, ou 001…099) : le HyperDeck classe les fichiers par ordre alphabétique, qui n'est l'ordre numérique qu'à largeur égale.</li>
+          <li>Un numéro par clip, sans doublon. Plusieurs lecteurs peuvent partager un fichier grâce à la colonne <strong>Player</strong> (P1, P2…) : chaque lecteur choisit le sien à l'import, et les numéros peuvent alors se répéter d'un Player à l'autre.</li>
+          <li>Les catégories s'affichent dans leur ordre d'apparition dans le fichier.</li>
+        </ul>
+      </details>
+      <div class="hc-row">
+        <button class="btn" type="button" id="hc-csv-example">Télécharger un CSV exemple</button>
+        <button class="btn" type="button" id="hc-csv-export">Exporter la liste actuelle</button>
+      </div>
       <div id="hc-list-out"></div>
       <footer class="hc-dlg-f">
         <span class="hc-spacer"></span>

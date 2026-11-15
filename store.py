@@ -29,14 +29,16 @@ _data = None
 PLAYER_FIELDS = {
     "name": str, "host": str, "ftp_port": int, "ftp_user": str, "ftp_password": str,
     "ftp_dir": str, "tcp_port": int, "audio_channels": int, "protect_on_air": bool,
-    "placeholder_duration": int,
+    "placeholder_duration": int, "placeholder_template": str,
 }
 FORMAT_FIELDS = {"codec_tag": str, "width": int, "height": int, "fps": str, "field_order": str}
+
+DEFAULT_PH_TEMPLATE = "{num} - VIDE - {nom}"   # cf. validate_template
 
 DEFAULT_PLAYER = {
     "name": "", "host": "", "ftp_port": 21, "ftp_user": "", "ftp_password": "",
     "ftp_dir": "", "tcp_port": 9993, "audio_channels": 2, "protect_on_air": True,
-    "placeholder_duration": 10,
+    "placeholder_duration": 10, "placeholder_template": DEFAULT_PH_TEMPLATE,
     "format": {"codec_tag": "apch", "width": 1920, "height": 1080, "fps": "25/1",
                "field_order": "tt"},
     "list": None,        # {filename, player, imported_at, imported_by, categories}
@@ -110,6 +112,7 @@ def apply_fields(p, body):
                     raise ValueError("valeur invalide pour format.%s" % k)
     p["name"] = (p["name"] or "").strip() or p["host"] or "Lecteur"
     p["ftp_dir"] = (p["ftp_dir"] or "").strip().strip("/")
+    p["placeholder_template"] = validate_template(p.get("placeholder_template") or DEFAULT_PH_TEMPLATE)
     p["placeholder_duration"] = max(1, min(600, int(p["placeholder_duration"] or 10)))
     p["audio_channels"] = max(0, min(16, int(p["audio_channels"] or 0)))
 
@@ -157,8 +160,12 @@ def clean(name, limit=200):
     return n
 
 
+_NUM_LEAD = re.compile(r"^(\d+)(?=\D)")
+
+
 def num_of(filename):
-    m = _NUM_PREFIX.match(filename or "")
+    """Numéro en tête du nom (« 104 - … », « 104_… »). Suivi d'au moins un non-chiffre."""
+    m = _NUM_LEAD.match(filename or "")
     return m.group(1) if m else None
 
 
@@ -172,12 +179,59 @@ def delivered_name(num, original):
     return clean("%s - %s" % (num, o or "clip.mov"))
 
 
-def placeholder_name(slot):
-    return clean("%s - VIDE - %s.mov" % (slot["num"], slot.get("nom") or "clip"))
+# Modèle de nom des bouche-trous, réglable par lecteur. Il DOIT commencer par {num} suivi
+# d'un caractère qui n'est pas un chiffre : c'est le numéro en tête qui classe le fichier
+# au bon rang (ordre alphabétique du HyperDeck) et qui le rattache à son emplacement.
+PH_FIELDS = ("num", "nom", "cat", "id", "lecteur")
+_FIELD = re.compile(r"\{([^{}]*)\}")
 
 
-def is_placeholder(filename, num):
-    return (filename or "").startswith("%s - VIDE - " % num)
+def validate_template(t):
+    t = (t or "").strip()
+    if t.lower().endswith(".mov"):
+        t = t[:-4].rstrip()
+    if not t.startswith("{num}"):
+        raise ValueError("le nom des bouche-trous doit commencer par {num} : c'est le numéro "
+                         "en tête qui place le fichier au bon rang sur le HyperDeck")
+    rest = t[len("{num}"):]
+    if not rest or rest[0].isdigit() or rest[0] == "{":
+        raise ValueError("après {num}, mettez un séparateur (ex. « {num} - VIDE - {nom} ») : "
+                         "sinon le numéro se confondrait avec la suite du nom")
+    for f in _FIELD.findall(t):
+        if f not in PH_FIELDS:
+            raise ValueError("variable inconnue {%s} (disponibles : %s)"
+                             % (f, ", ".join("{%s}" % x for x in PH_FIELDS)))
+    if _BAD.search(_FIELD.sub("", t)):
+        raise ValueError('caractères interdits dans un nom de fichier : / \\ : * ? " < > |')
+    return t
+
+
+def _values(slot, player_name):
+    return {"num": slot["num"], "nom": slot.get("nom") or "clip", "cat": slot.get("cat") or "",
+            "id": slot.get("id") or "", "lecteur": player_name or ""}
+
+
+def placeholder_name(slot, template=None, player_name=""):
+    v = _values(slot, player_name)
+    base = _FIELD.sub(lambda m: str(v.get(m.group(1), "")), template or DEFAULT_PH_TEMPLATE)
+    return clean(re.sub(r"\s{2,}", " ", base).strip() + ".mov")
+
+
+def _ph_regex(slot, template):
+    out, pos = "", 0
+    for m in _FIELD.finditer(template):
+        out += re.escape(template[pos:m.start()])
+        out += re.escape(slot["num"]) if m.group(1) == "num" else ".*"
+        pos = m.end()
+    out += re.escape(template[pos:])
+    return re.compile(out + r"\.mov", re.IGNORECASE | re.DOTALL)
+
+
+def is_placeholder(filename, slot, template=None):
+    """Le fichier a-t-il la FORME d'un bouche-trou de cet emplacement (modèle actuel, ou
+    modèle par défaut — pour reconnaître ceux posés avant un changement de réglage) ?"""
+    n = filename or ""
+    return any(_ph_regex(slot, t).fullmatch(n) for t in {template or DEFAULT_PH_TEMPLATE, DEFAULT_PH_TEMPLATE})
 
 
 def is_media(filename):

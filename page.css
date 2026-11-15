@@ -145,3 +145,8 @@
 .hc-store.bad strong { color: var(--status-stopped-fg); }
 .hc-bar-p.warn > i { background: var(--status-warning-fg); }
 .hc-bar-p.bad > i { background: var(--status-stopped-fg); }
+
+.hc-help { font-size: 12.5px; color: var(--text-muted); }
+.hc-help summary { cursor: pointer; color: var(--text); }
+.hc-help ul { margin: 6px 0 0; padding-left: 18px; }
+.hc-help li { margin: 3px 0; }

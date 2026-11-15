@@ -73,7 +73,7 @@ def _view(p):
         e = ev["slots"][s["num"]]
         slots.append(dict(s, **e, file=p["files"].get(s["num"]),
                           history=p["history"].get(s["num"], []),
-                          placeholder_name=store.placeholder_name(s),
+                          placeholder_name=engine.ph_name(p, s),
                           job=active.get(s["num"])))
     scan = None
     if sc:
@@ -452,9 +452,10 @@ class Handler(BaseHTTPRequestHandler):
         if not sc["ftp"].get("ok"):
             raise _err(502, "FTP injoignable : %s" % sc["ftp"].get("error"))
         queued = {j["num"] for j in engine.jobs(pid) if j["state"] not in ("done", "error", "cancelled")}
-        nums = [n for n in engine.fill_plan(p, sc) if n not in queued]
-        jobs = [engine.enqueue(pid, "placeholder", num=n, by=self._user()) for n in nums]
-        return self._send(200, {"ok": True, "queued": len(jobs)})
+        plan = [x for x in engine.fill_plan(p, sc) if x[0] not in queued]
+        jobs = [engine.enqueue(pid, kind, num=n, original=old, by=self._user()) for n, kind, old in plan]
+        return self._send(200, {"ok": True, "queued": len(jobs),
+                                "renamed": sum(1 for x in plan if x[1] == "rename")})
 
     def _reset(self, pid, body):
         """FIN DE TOURNAGE : chaque emplacement repasse au bouche-trou.
