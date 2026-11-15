@@ -17,13 +17,14 @@ liste doit donc toujours compter le même nombre de clips, dans le même ordre.
 3. `DELE` de l'ancien puis `RNFR/RNTO` du temporaire ; repli par `STOR` direct si le
    renommage est refusé.
 
-## Réponses FTP décalées
-Sur HyperDeck réel, un renommage a reçu « 200 » au `RNFR` puis « 350 » au `RNTO` : les
-réponses arrivent décalées d'un cran (350 est la réponse normale au RNFR). Le client FTP
-de l'outil lit et écarte, avant chaque commande, toute réponse déjà arrivée sans avoir été
-demandée, et le renommage reconnaît un 350 tardif. Le journal brut de l'échange accompagne
-chaque refus ; « Tester la connexion » fait un renommage d'essai sur un petit fichier
-texte (invisible dans la timeline) et montre cet échange.
+## Renommage FTP refusé (HyperDeck Studio HD Pro, relevé le 2026-11-15)
+Le RNFR reçoit DEUX réponses : « 350 » puis « 550 File unavailable », pour un fichier
+présent ; aucun renommage n'a lieu. L'outil lit toutes les réponses du RNFR, essaie le
+chemin absolu, puis retient que le lecteur ne renomme pas et passe par des envois
+complets : livraison = envoi direct puis suppression de l'ancien ; déplacer/échanger =
+relecture (RETR) puis renvoi ; nom des bouche-trous = refabrication. Pendant un envoi,
+l'emplacement peut porter deux fichiers (contrepartie inévitable sans renommage).
+« Tester la connexion » refait l'essai et montre l'échange brut.
 
 ## Espace du HyperDeck
 Le protocole ne donne que le temps d'enregistrement restant. L'espace libre en est
@@ -32,7 +33,7 @@ et DNx publiés), d'où le « ≈ » ; capacité = libre estimé + taille des cl
 le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.264/H.265).
 
 ## À vérifier sur une vraie machine
-- Renommage FTP (`RNFR/RNTO`) : hypothèse du décalage à confirmer avec « Tester la connexion ».
+- Le HyperDeck liste-t-il un fichier EN COURS d'envoi (décalage des rangs pendant l'envoi) ?
 - Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
 - Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
 - Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).

@@ -252,6 +252,8 @@ window.BTTools.hyperdeck_clips = (function () {
                 + (ratio != null ? ' <span class="hc-bar-p ' + cls + '"><i style="--p:' + ratio.toFixed(3) + '"></i></span>' : "")
                 + bits.map((b) => " · " + b).join("") + "</span>");
         }
+        if (view.no_rename) parts.push('<span class="hc-store warn" title="Réponse du HyperDeck à la commande de renommage (RNFR) : ' + esc(view.no_rename)
+            + '. Sans renommage, un remplacement envoie le nouveau clip puis supprime l\'ancien : pendant l\'envoi, l\'emplacement peut porter deux fichiers. Un déplacement relit le clip depuis le HyperDeck puis le renvoie.">⚠ Ce HyperDeck ne renomme pas par FTP : remplacements et déplacements passent par des envois complets</span>');
         $("#hc-storage").innerHTML = parts.join("");
     }
 
@@ -942,7 +944,7 @@ window.BTTools.hyperdeck_clips = (function () {
             const r = await ctx.api("players/" + pid + "/test", { method: "POST", body: {} });
             out.innerHTML = (r.ftp.ok ? '<span class="hc-badge ok">FTP OK</span> ' + esc(r.ftp.cwd) + " · " + r.ftp.files + " fichier(s)"
                 : '<span class="hc-badge bad">FTP</span> ' + esc(r.ftp.error)) + "<br>"
-                + (r.rename ? (r.rename.ok ? '<span class="hc-badge ok">Renommage OK</span>' : '<span class="hc-badge bad">Renommage</span> ' + esc(r.rename.error || ""))
+                + (r.rename ? (r.rename.ok ? '<span class="hc-badge ok">Renommage OK</span>' : r.rename.unsupported ? '<span class="hc-badge warn">Pas de renommage</span> ' + esc(r.rename.error || "") + " — l'outil passe par des envois complets" : '<span class="hc-badge bad">Renommage</span> ' + esc(r.rename.error || ""))
                     + (r.rename.stray ? ' <span class="hc-badge warn">' + r.rename.stray + " réponse(s) FTP en trop, rattrapée(s)</span>" : "")
                     + (r.rename.journal && r.rename.journal.length ? '<details><summary>Échange FTP brut</summary><pre class="hc-mono">' + esc(r.rename.journal.join("\n")) + "</pre></details>" : "") + "<br>" : "")
                 + (r.deck.ok ? '<span class="hc-badge ok">Protocole OK</span> ' + esc(r.deck.model || "") + " · " + esc(r.deck.clips) + " clip(s) dans la timeline"

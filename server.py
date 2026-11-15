@@ -82,6 +82,7 @@ def _view(p):
                 "deck": {k: v for k, v in sc["deck"].items() if k not in ("clips",)},
                 "files_count": len(sc["ftp"].get("files") or [])}
     return {"player": store.public(p), "slots": slots, "storage": _storage(p, sc),
+            "no_rename": engine._no_rename.get(p["id"]),
             "categories": csvlist.categories(p["slots"]),
             "format_label": media.format_label(p["format"]),
             "scan": scan, "anomalies": {k: ev[k] for k in ("foreign", "temps", "others")},
@@ -644,9 +645,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             ftp = engine.ftp_open(p)
             ftp.storbinary("STOR " + a, io.BytesIO(b"test Bobi.Tools\n"))
-            engine.ftp_rename(ftp, a, b)
+            try:
+                engine.ftp_rename(ftp, a, b)
+            except engine.RenameUnsupported as e:
+                engine._no_rename[p["id"]] = e.reply
+                res["unsupported"] = True
+                raise
             names = engine.ftp_names(ftp)
             res["ok"] = b in names and a not in names
+            if res["ok"]:
+                engine._no_rename.pop(p["id"], None)     # mise à jour du HyperDeck : on réessaiera
             if not res["ok"]:
                 res["error"] = "renommage annoncé réussi mais non constaté sur le disque"
         except Exception as e:
