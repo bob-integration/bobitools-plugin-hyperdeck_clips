@@ -94,6 +94,15 @@ def ftp_names(ftp):
         return sorted(out)
 
 
+def ftp_rename(ftp, src, dst):
+    """RNFR/RNTO tolérant. `ftplib.rename` exige « 350 » au RNFR (RFC 959) ; le HyperDeck
+    répond « 200 Command successful » — relevé le 2026-11-15 sur machine réelle — et
+    ftplib abandonnait, laissant la machine en attente du RNTO. Tout code 2xx/3xx est
+    donc accepté au RNFR ; le RNTO doit répondre 2xx."""
+    ftp.sendcmd("RNFR " + src)          # lève error_temp/error_perm sur 4xx/5xx
+    return ftp.voidcmd("RNTO " + dst)
+
+
 def ftp_dirs(p, path):
     """Sous-dossiers d'un chemin (aide au choix du disque : le HyperDeck présente un
     dossier par support à la racine de son FTP)."""
@@ -320,7 +329,7 @@ def _swap(j, p):
         try:
             with open(local, "rb") as fh:
                 ftp.storbinary("STOR " + temp, fh, blocksize=1 << 20, callback=cb)
-        except Cancelled:
+        except Exception:               # annulé OU coupé en route : pas de temporaire partiel
             _close(ftp)
             _cleanup_temp(p, temp)
             raise
@@ -338,25 +347,40 @@ def _swap(j, p):
         _cleanup_temp(p, temp)
         raise
     _log(j, "échange : %s → %s" % (" + ".join(olds) or "(rien)", final))
-    ftp = ftp_open(p)
+    renamed = False
     try:
-        for o in olds:
-            ftp.delete(o)
+        ftp = ftp_open(p)
         try:
-            ftp.rename(temp, final)
-        except ftplib.all_errors as e:
-            _log(j, "renommage refusé (%s) : envoi direct sous le nom définitif" % e)
-            j["sent"] = 0
-            with open(local, "rb") as fh:
-                ftp.storbinary("STOR " + final, fh, blocksize=1 << 20,
-                               callback=lambda c: j.__setitem__("sent", j["sent"] + len(c)))
+            for o in olds:
+                ftp.delete(o)
             try:
-                ftp.delete(temp)
-            except ftplib.all_errors:
-                pass
-        names = ftp_names(ftp)
-    finally:
-        _close(ftp)
+                ftp_rename(ftp, temp, final)
+                renamed = True
+            except ftplib.all_errors as e:
+                _log(j, "renommage refusé (%s) : envoi direct sous le nom définitif" % e)
+        finally:
+            _close(ftp)
+        # Session NEUVE pour la suite : un serveur laissé en attente du RNTO répond « 503
+        # Bad sequence of commands » à tout ce qu'on lui envoie ensuite (relevé sur HyperDeck).
+        ftp = ftp_open(p)
+        try:
+            if not renamed:
+                j["sent"] = 0
+                with open(local, "rb") as fh:
+                    ftp.storbinary("STOR " + final, fh, blocksize=1 << 20,
+                                   callback=lambda c: j.__setitem__("sent", j["sent"] + len(c)))
+                try:
+                    ftp.delete(temp)
+                except ftplib.all_errors:
+                    pass
+            names = ftp_names(ftp)
+        finally:
+            _close(ftp)
+    except Exception:
+        # Jamais de temporaire abandonné : il resterait en fin de liste du HyperDeck.
+        if not renamed:
+            _cleanup_temp(p, temp)
+        raise
     _listing[p["id"]] = (time.time(), names)
     mine = [n for n in names if store.num_of(n) == num and store.is_media(n)]
     if mine != [final]:

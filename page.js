@@ -230,7 +230,9 @@ window.BTTools.hyperdeck_clips = (function () {
             const running = (view.jobs || []).some((j) => ["sending", "swapping", "waiting_air", "blocked"].includes(j.state));
             out.push('<div class="hc-alert"><strong>Fichier(s) temporaire(s) d\'envoi</strong> en fin de liste'
                 + (running ? " (un transfert est en cours)" : " — reste d'un envoi interrompu") + " :<ul>"
-                + a.temps.map((n) => '<li><span class="hc-mono">' + esc(n) + "</span>" + (running ? "" : del(n)) + "</li>").join("") + "</ul></div>");
+                + a.temps.map((n) => '<li><span class="hc-mono">' + esc(n) + "</span>" + (running ? "" : del(n)) + "</li>").join("") + "</ul>"
+                + (!running && canManage && a.temps.length > 1 ? '<button class="btn" type="button" data-del-temps>Supprimer les ' + a.temps.length + " temporaires</button>" : "")
+                + "</div>");
         }
         (view.pending || []).forEach((x) => {
             out.push('<div class="hc-alert"><strong>' + esc(x.num) + " — « " + esc(x.original) + " » refusé :</strong> "
@@ -793,6 +795,17 @@ window.BTTools.hyperdeck_clips = (function () {
                 if (ds.delRemote) {
                     if (!(await confirmDlg("Supprimer du HyperDeck", "Supprimer définitivement « <span class=\"hc-mono\">" + esc(ds.delRemote) + "</span> » du disque du HyperDeck ?", "Supprimer"))) return;
                     await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.delRemote } });
+                    return loadView().then(schedule);
+                }
+                if (ds.delTemps !== undefined) {
+                    const names = (view.anomalies.temps || []).slice();
+                    if (!(await confirmDlg("Supprimer les temporaires", names.length + " fichier(s) <span class=\"hc-mono\">zzz_envoi_…</span> seront supprimés du HyperDeck. Ce sont des restes d'envois interrompus : aucun n'occupe un emplacement.", "Supprimer " + names.length + " fichier(s)"))) return;
+                    let n = 0;
+                    for (const name of names) {
+                        try { await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name } }); n++; }
+                        catch (e) { toast(name + " : " + e.message, "error"); }
+                    }
+                    toast(n + " suppression(s) en file", "info");
                     return loadView().then(schedule);
                 }
                 if (ds.fix) { await ctx.api("players/" + pid + "/pending/" + ds.fix + "/fix", { method: "POST", body: {} }); toast("En-tête corrigé, transfert en file", "info"); return loadView().then(schedule); }

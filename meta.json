@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.2.1",
+   "date": "2026-11-15",
+   "notes": "PREMIER ESSAI SUR UN VRAI HYPERDECK : aucun clip ne se posait, et des fichiers zzz_envoi_… s'accumulaient en fin de liste. Le HyperDeck répond « 200 Command successful » au RNFR du renommage FTP là où la norme (et ftplib) attend « 350 » : l'échange abandonnait, puis le repli (envoi direct) recevait « 503 Bad sequence of commands » d'une machine restée en attente du RNTO, et le temporaire restait sur le disque. Le renommage accepte désormais tout 2xx/3xx au RNFR ; le repli repart sur une session FTP neuve ; un échange ou un envoi qui échoue supprime toujours son temporaire. Bouton « Supprimer les N temporaires » pour nettoyer les restes. Banc : RNFR=200 reproduit, renommage refusé (repli) vérifié."
+  },
+  {
    "version": "0.2.0",
    "date": "2026-11-15",
    "notes": "FIN DE TOURNAGE : un bouton remet tous les emplacements d'un lecteur en bouche-trou (clips livrés, fichiers non suivis, bouche-trous périmés, doublons, emplacements vides), et supprime en option les fichiers hors liste. Plan relu sur la machine et affiché clip par clip avant d'agir, confirmation en tapant le nom du lecteur, refus tant qu'un transfert est en cours. Même échange que pour une livraison : la liste garde ses rangs pendant toute l'opération et un clip à l'antenne n'est pas retiré avant la fin de sa lecture. Historique conservé. Nouvelle permission clips.reset. CORRIGÉ : un clip livré pendant un remplissage de bouche-trous pouvait être écrasé ensuite par le bouche-trou resté en file pour le même emplacement (les livraisons passent en priorité, le bouche-trou attendait derrière). Une livraison annule désormais les bouche-trous encore en file sur son emplacement."
