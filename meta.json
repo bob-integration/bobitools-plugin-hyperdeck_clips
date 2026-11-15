@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.7.1",
+   "date": "2026-11-15",
+   "notes": "Un « 350 » au RNTO sans autre réponse derrière n'attend plus 20 s pour finir en « délai dépassé » (classé à tort côté réseau) : refus explicite au bout de 3 s, « renommage non effectué ». Note de banc : le décalage simulé juste après la connexion fait échouer la 0.6.3 dès le premier listing, ce qui ne s'est PAS produit sur la machine réelle : l'hypothèse du décalage reste à confirmer par « Tester la connexion »."
+  },
+  {
    "version": "0.7.0",
    "date": "2026-11-15",
    "notes": "DÉPLACER UN CLIP ÉCHOUAIT sur HyperDeck réel (« 350 Requested file action pending further information »). Les réponses FTP du HyperDeck arrivent décalées d'un cran : 200 au RNFR, puis 350 (la réponse du RNFR) au RNTO. Les livraisons y échappaient sans bruit par leur repli (renvoi complet du fichier), le déplacement n'en a pas. Le client FTP se recale désormais avant chaque commande (réponses en trop lues et écartées, notées au journal) et le renommage reconnaît un 350 tardif. Un refus est suivi d'une RELECTURE DU DISQUE : un renommage fait malgré une réponse trompeuse n'est plus défait à tort ni renvoyé. Le journal brut de l'échange FTP accompagne chaque refus. « Tester la connexion » fait un renommage d'essai (petit fichier texte, timeline non touchée). ESPACE DU HYPERDECK : libre et capacité estimés (≈) à partir du temps d'enregistrement restant et du débit du format d'enregistrement, avec jauge ; taille des clips lue par LIST quand le HyperDeck n'a pas MLSD. Banc : décalage reproduit, déplacement et renommage d'essai réussis."

@@ -250,9 +250,13 @@ def ftp_rename(ftp, src, dst):
             ftp.drain(1.0)
         r2 = ftp.sendcmd("RNTO " + dst)
         if r2.startswith("350"):
-            ftp.journal.append("  (350 au RNTO = réponse du RNFR, arrivée en retard)") \
-                if hasattr(ftp, "journal") else None
+            # Pas d'attente aveugle : si rien ne suit, le 350 était LA réponse au RNTO (cas
+            # d'une machine qui ne renomme pas vraiment) → refus explicite, pas un « délai ».
+            if not (hasattr(ftp, "_pending") and ftp._pending(3.0)):
+                raise ftplib.error_reply("%s (réponse au RNTO, rien d'autre ensuite : "
+                                         "renommage non effectué)" % r2)
             r2 = ftp.getresp()
+            ftp.journal.append("  (le 350 était la réponse du RNFR, arrivée en retard)")
         if not r2.startswith("2"):
             raise ftplib.error_reply(r2)
         return r2
