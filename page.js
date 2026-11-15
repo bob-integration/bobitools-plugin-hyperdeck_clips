@@ -290,7 +290,9 @@ window.BTTools.hyperdeck_clips = (function () {
             if (["waiting_air", "blocked"].includes(j.state) && canDeliver)
                 act.push('<button class="btn btn-orange" type="button" data-force-job="' + esc(j.id) + '" title="Échange immédiat, même si le clip est à l\'antenne">Forcer</button>');
             const label = j.kind === "delete" ? "suppression de " + j.remote : j.kind === "placeholder" ? "bouche-trou"
-                : j.kind === "rename" ? "renommage du bouche-trou" : (j.original || j.remote);
+                : j.kind === "rename" ? "renommage du bouche-trou"
+                : j.kind === "move" ? (j.mode === "swap" ? "échange " + j.num + " ↔ " + j.target : "déplacement " + j.num + " → " + j.target + " (" + (j.original || "") + ")")
+                : (j.original || j.remote);
             rows.push('<div class="hc-xfer"><span class="hc-num-l">' + esc(j.num || "—") + '</span><span class="hc-xfer-t" title="' + esc(j.remote || "") + '">'
                 + esc(label) + '</span><span class="hc-bar-p ftp"><i style="--p:' + (j.state === "done" ? 1 : pct / 100) + '"></i></span><span class="hc-xfer-d">'
                 + '<span class="hc-badge ' + (j.state === "error" ? "bad" : ["waiting_air", "blocked"].includes(j.state) ? "warn" : "info") + '">' + esc(JOB[j.state] || j.state) + "</span> "
@@ -353,6 +355,9 @@ window.BTTools.hyperdeck_clips = (function () {
             const html = slotHTML(s);
             if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
             el.className = "hc-slot st-" + s.status + (el.classList.contains("drag") ? " drag" : "");
+            const movable = canDeliver && s.status === "delivered" && !s.job && !uploadOf(s.num);
+            if (movable) el.setAttribute("draggable", "true"); else el.removeAttribute("draggable");
+            el.title = movable ? "Glissez sur une autre case pour déplacer ce clip" : "";
         });
         cats.forEach((c) => {
             const items = view.slots.filter((s) => s.cat === c);
@@ -404,6 +409,12 @@ window.BTTools.hyperdeck_clips = (function () {
             const acts = [];
             if (canDeliver) {
                 acts.push('<button class="btn btn-green" type="button" data-pick="' + esc(num) + '">' + (s.status === "delivered" ? "Remplacer (V" + ((f.v || 0) + 1) + ")…" : "Choisir un fichier…") + "</button>");
+                if (s.status === "delivered" && !s.job) {
+                    acts.push('<span class="hc-row"><select id="hc-move-to" aria-label="Emplacement de destination"><option value="">Déplacer vers…</option>'
+                        + view.slots.filter((x) => x.num !== num).map((x) => '<option value="' + esc(x.num) + '">' + esc(x.num + " — " + x.nom)
+                            + (x.status === "delivered" ? " (clip V" + ((x.file || {}).v || "?") + ")" : "") + "</option>").join("")
+                        + '</select><button class="btn" type="button" data-move-from="' + esc(num) + '">Déplacer</button></span>');
+                }
                 if (s.status === "delivered" || s.status === "foreign_file" || s.status === "duplicate")
                     acts.push('<button class="btn btn-red" type="button" data-clear="' + esc(num) + '">Retirer (remettre le bouche-trou)</button>');
                 if (["missing", "stale_placeholder"].includes(s.status))
@@ -881,6 +892,40 @@ window.BTTools.hyperdeck_clips = (function () {
         inp.focus();
     }
 
+    // ── Déplacer un clip d'une case à l'autre ─────────────────
+    // Ce n'est qu'un RENOMMAGE sur le HyperDeck (le clip ne repasse pas par le réseau),
+    // plus un bouche-trou pour la case quittée. Sur une case occupée : échanger ou remplacer.
+    async function moveFlow(a, b) {
+        const A = view.slots.find((x) => x.num === a), B = view.slots.find((x) => x.num === b);
+        if (!A || !B || a === b) return;
+        const fa = A.file || {}, fb = B.file || {};
+        const clipA = "« " + esc(fa.original || "") + " » (V" + esc(fa.v) + ")";
+        const run = async (mode) => {
+            try {
+                await ctx.api("players/" + pid + "/slots/" + encodeURIComponent(a) + "/move", { method: "POST", body: { to: b, mode } });
+                toast(mode === "swap" ? "Échange " + a + " ↔ " + b + " en file" : "Déplacement " + a + " → " + b + " en file", "info");
+                if ($("#hc-slot-dlg").open) $("#hc-slot-dlg").close();
+                await loadView(); schedule();
+            } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
+        };
+        const after = '<p class="hc-note">Sur le HyperDeck, c\'est un simple renommage : le clip n\'est pas renvoyé. La liste garde tous ses rangs '
+            + "(un clip en cours de lecture n'est pas touché avant la fin).</p>";
+        if (B.status === "delivered") {
+            msg("Déplacer " + a + " sur " + b, "<p>L'emplacement <strong>" + esc(b) + " — " + esc(B.nom) + "</strong> contient déjà « " + esc(fb.original || "")
+                + " » (V" + esc(fb.v) + ").</p><ul><li><strong>Échanger</strong> : " + clipA + " passe en " + esc(b) + ", et « " + esc(fb.original || "")
+                + " » passe en " + esc(a) + ". Rien n'est supprimé.</li><li><strong>Remplacer</strong> : " + clipA + " passe en " + esc(b) + ", « "
+                + esc(fb.original || "") + " » est <strong>supprimé du HyperDeck</strong>, et " + esc(a) + " reçoit son bouche-trou.</li></ul>" + after,
+                [{ label: "Remplacer", cls: "btn-red", fn: () => run("replace") }, { label: "Échanger " + a + " ↔ " + b, cls: "btn-green", fn: () => run("swap") }]);
+        } else {
+            msg("Déplacer " + a + " → " + b, "<p>" + clipA + " quitte <strong>" + esc(a) + " — " + esc(A.nom) + "</strong> pour <strong>" + esc(b) + " — "
+                + esc(B.nom) + "</strong>.</p><ul><li>sur le HyperDeck, il sera nommé « " + esc(b) + " - " + esc(stripNum(fa.original || "", a)) + " » ;</li>"
+                + "<li>" + esc(a) + " reçoit son bouche-trou ;</li>"
+                + (B.files && B.files.length ? "<li>ce que portait " + esc(b) + " (" + B.files.map((n) => '<span class="hc-mono">' + esc(n) + "</span>").join(", ") + ") est supprimé.</li>" : "")
+                + "</ul>" + after, [{ label: "Déplacer vers " + b, cls: "btn-green", fn: () => run("move") }]);
+        }
+    }
+    function stripNum(name, num) { const m = /^(\d+)\s*-\s*/.exec(name); return m && m[1] === num ? name.slice(m[0].length) : name; }
+
     // ── Événements ────────────────────────────────────────────
     function bind() {
         root.addEventListener("click", async (ev) => {
@@ -906,6 +951,12 @@ window.BTTools.hyperdeck_clips = (function () {
                     if (!(await confirmDlg("Supprimer du HyperDeck", "Supprimer définitivement « <span class=\"hc-mono\">" + esc(ds.delRemote) + "</span> » du disque du HyperDeck ?", "Supprimer"))) return;
                     await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.delRemote } });
                     return loadView().then(schedule);
+                }
+                if (ds.moveFrom) {
+                    const to = $("#hc-move-to").value;
+                    if (!to) return toast("Choisissez l'emplacement de destination", "warning");
+                    $("#hc-slot-dlg").close();
+                    return moveFlow(ds.moveFrom, to);
                 }
                 if (ds.delTemps !== undefined) {
                     const names = (view.anomalies.temps || []).slice();
@@ -977,6 +1028,40 @@ window.BTTools.hyperdeck_clips = (function () {
         // Glisser-déposer sur les emplacements, ou n'importe où (dépôt groupé).
         const app = $("#hc-app");
         const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+        const MOVE_T = "application/x-hc-slot";
+        const isMove = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes(MOVE_T);
+        let dragFrom = null;
+        app.addEventListener("dragstart", (e) => {
+            const s = e.target.closest && e.target.closest(".hc-slot[draggable=true]");
+            if (!s) return;
+            dragFrom = s.dataset.num;
+            e.dataTransfer.setData(MOVE_T, dragFrom);
+            e.dataTransfer.setData("text/plain", dragFrom);
+            e.dataTransfer.effectAllowed = "move";
+            s.classList.add("moving");
+        });
+        app.addEventListener("dragend", () => {
+            dragFrom = null;
+            root.querySelectorAll(".hc-slot.moving, .hc-slot.drag").forEach((x) => x.classList.remove("moving", "drag"));
+        });
+        app.addEventListener("dragover", (e) => {
+            if (!isMove(e) || !dragFrom) return;
+            const s = e.target.closest(".hc-slot");
+            root.querySelectorAll(".hc-slot.drag").forEach((x) => { if (x !== s) x.classList.remove("drag"); });
+            if (!s || s.dataset.num === dragFrom) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            s.classList.add("drag");
+        });
+        app.addEventListener("drop", (e) => {
+            if (!isMove(e) || !dragFrom) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const s = e.target.closest(".hc-slot"), from = dragFrom;
+            root.querySelectorAll(".hc-slot.drag, .hc-slot.moving").forEach((x) => x.classList.remove("drag", "moving"));
+            dragFrom = null;
+            if (s && s.dataset.num !== from) moveFlow(from, s.dataset.num);
+        });
         app.addEventListener("dragover", (e) => {
             if (!hasFiles(e) || !view || !pid || e.target.closest("dialog")) return;
             e.preventDefault();

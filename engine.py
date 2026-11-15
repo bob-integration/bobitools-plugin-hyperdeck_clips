@@ -37,7 +37,7 @@ SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "60") or 0)
 FTP_TIMEOUT = float(os.environ.get("FTP_TIMEOUT", "20") or 20)
 AIR_WAIT_MAX = 600          # au-delà, l'envoi est mis en échec : on ne garde pas un échange en suspens 1 h
 
-PRIORITY = {"deliver": 0, "delete": 1, "rename": 2, "placeholder": 3}
+PRIORITY = {"deliver": 0, "delete": 1, "move": 1, "rename": 2, "placeholder": 3}
 
 _jobs = {}                  # id → job (dict)
 _queues = {}                # pid → queue.Queue
@@ -156,13 +156,14 @@ def _q(pid):
 
 
 def enqueue(pid, kind, num=None, local=None, original=None, remote=None, by="", label=None,
-            summary=None, size=None):
+            summary=None, size=None, **extra):
     job = {"id": secrets.token_hex(5), "player": pid, "kind": kind, "num": num,
            "local": local, "original": original, "remote": remote, "by": by,
            "label": label, "summary": summary, "size": size or (os.path.getsize(local) if local and os.path.exists(local) else None),
            "sent": 0, "state": "queued", "detail": "", "error": None, "log": [],
            "created": time.time(), "started": None, "ended": None,
            "cancel": False, "force": False}
+    job.update(extra)
     with _glock:
         if kind == "deliver":
             # Un bouche-trou ENCORE EN FILE pour cet emplacement passerait après la livraison
@@ -255,12 +256,14 @@ def _worker(pid):
             p = store.get(pid)
             if not p:
                 raise RuntimeError("lecteur supprimé")
-            if j["kind"] == "placeholder":
+            if j["kind"] == "placeholder" or (j["kind"] == "move" and j.get("mode") != "swap"):
                 _render(j, p)
             if j["kind"] == "delete":
                 _delete_remote(j, p)
             elif j["kind"] == "rename":
                 _rename_placeholder(j, p)
+            elif j["kind"] == "move":
+                _move(j, p)
             else:
                 _swap(j, p)
             j["state"] = "done"
@@ -447,6 +450,126 @@ def _record(j, p, olds):
                                 "v": v, "at": entry["at"], "by": j["by"], "size": j["size"],
                                 "label": j["label"], "summary": j.get("summary")}
         hist.append(entry)
+    store.mutate(p["id"], fn)
+
+
+def _move(j, p):
+    """Déplacer un clip livré de l'emplacement A vers B, par RENOMMAGE (le clip ne repasse
+    pas par le réseau). Deux modes :
+      - "move"    : B perd ce qu'il portait (bouche-trou, ou clip en mode « remplacer »),
+                    A reçoit un bouche-trou (déjà fabriqué et envoyé sous un nom temporaire) ;
+      - "swap"    : A et B échangent leurs clips, rien n'est envoyé ni supprimé.
+    Ordre choisi pour ne JAMAIS perdre un clip si la machine refuse une commande en route :
+    le clip déplacé part d'abord sous un nom temporaire (fin de liste) ; ce n'est qu'une
+    fois à l'abri qu'on supprime quoi que ce soit. En cas d'échec, retour en arrière.
+    Comme pour un échange de fichier, la liste n'a un trou que quelques millisecondes."""
+    a, b, mode = j["num"], j["target"], j.get("mode") or "move"
+    slot_a = next((s for s in p["slots"] if s["num"] == a), None)
+    slot_b = next((s for s in p["slots"] if s["num"] == b), None)
+    rec_a, rec_b = p["files"].get(a) or {}, p["files"].get(b) or {}
+    if not slot_a or not slot_b:
+        raise RuntimeError("emplacement absent de la liste")
+    if rec_a.get("kind") != "clip":
+        raise RuntimeError("l'emplacement %s ne porte plus de clip livré" % a)
+    if mode == "swap" and rec_b.get("kind") != "clip":
+        raise RuntimeError("l'emplacement %s ne porte plus de clip livré : échange impossible" % b)
+    x = rec_a["remote"]
+    new_b = store.delivered_name(b, rec_a.get("original") or x)
+    new_a = store.delivered_name(a, rec_b.get("original") or rec_b.get("remote")) if mode == "swap" \
+        else ph_name(p, slot_a)
+    park = "%smove_%s%s" % (store.TEMP_PREFIX, j["id"], os.path.splitext(x)[1] or ".mov")
+    temp_ph = None
+
+    ftp = ftp_open(p)
+    try:
+        names = ftp_names(ftp)
+        if x not in names:
+            raise RuntimeError("« %s » n'est plus sur le HyperDeck : relancez une vérification" % x)
+        olds_b = [n for n in names if store.num_of(n) == b and store.is_media(n)]
+        if mode == "swap" and rec_b.get("remote") not in olds_b:
+            raise RuntimeError("le clip de l'emplacement %s n'est plus sur le HyperDeck" % b)
+        if mode != "swap":
+            # Bouche-trou de A, envoyé AVANT de toucher à quoi que ce soit (fin de liste).
+            temp_ph = "%s%s.mov" % (store.TEMP_PREFIX, j["id"])
+            j["state"] = "sending"
+            _log(j, "envoi du bouche-trou de %s sous %s" % (a, temp_ph))
+            with open(j["local"], "rb") as fh:
+                ftp.storbinary("STOR " + temp_ph, fh, blocksize=1 << 20,
+                               callback=lambda c: j.__setitem__("sent", j["sent"] + len(c)))
+    except Exception:
+        _close(ftp)
+        if temp_ph:
+            _cleanup_temp(p, temp_ph)
+        raise
+    _close(ftp)
+
+    j["state"] = "swapping"
+    try:
+        _wait_air(j, p, [x] + olds_b)
+    except Exception:
+        if temp_ph:
+            _cleanup_temp(p, temp_ph)
+        raise
+
+    done = []                      # renommages faits, pour revenir en arrière
+    ftp = ftp_open(p)
+    try:
+        try:
+            _log(j, "%s : %s (%s) → %s" % ("échange" if mode == "swap" else "déplacement", a, x, b))
+            ftp_rename(ftp, x, park)
+            done.append((x, park))
+            if mode == "swap":
+                ftp_rename(ftp, rec_b["remote"], new_a)
+                done.append((rec_b["remote"], new_a))
+                ftp_rename(ftp, park, new_b)
+                done.append((park, new_b))
+            else:
+                for o in olds_b:
+                    ftp_delete(ftp, o)
+                ftp_rename(ftp, park, new_b)
+                done.append((park, new_b))
+                ftp_rename(ftp, temp_ph, new_a)
+                done.append((temp_ph, new_a))
+        except ftplib.all_errors as e:
+            _log(j, "refus du HyperDeck (%s) : retour en arrière" % e)
+            for src, dst in reversed(done):
+                try:
+                    ftp_rename(ftp, dst, src)
+                except ftplib.all_errors as e2:
+                    _log(j, "retour en arrière impossible pour %s (%s)" % (dst, e2))
+            if temp_ph and (temp_ph, new_a) not in done:
+                try:
+                    ftp_delete(ftp, temp_ph)
+                except ftplib.all_errors:
+                    pass
+            raise RuntimeError("déplacement annulé : %s" % e)
+        names = ftp_names(ftp)
+    finally:
+        _close(ftp)
+    _listing[p["id"]] = (time.time(), names)
+    for n, want in ((a, new_a), (b, new_b)):
+        mine = [f for f in names if store.num_of(f) == n and store.is_media(f)]
+        if mine != [want]:
+            raise RuntimeError("après déplacement, l'emplacement %s porte : %s" % (n, ", ".join(mine) or "rien"))
+
+    def fn(pl):
+        ra, rb = dict(pl["files"].get(a) or {}), dict(pl["files"].get(b) or {})
+        ha, hb = pl["history"].setdefault(a, []), pl["history"].setdefault(b, [])
+        now = store.now()
+        vb = max([h.get("v") or 0 for h in hb] + [0]) + 1
+        hb.append({"at": now, "by": j["by"], "action": "reçu de %s" % a, "v": vb,
+                   "original": ra.get("original"), "remote": new_b, "replaced": olds_b if mode != "swap" else [rec_b.get("remote")]})
+        pl["files"][b] = dict(ra, remote=new_b, v=vb, at=now, by=j["by"])
+        if mode == "swap":
+            va = max([h.get("v") or 0 for h in ha] + [0]) + 1
+            ha.append({"at": now, "by": j["by"], "action": "échangé avec %s" % b, "v": va,
+                       "original": rb.get("original"), "remote": new_a, "replaced": [x]})
+            pl["files"][a] = dict(rb, remote=new_a, v=va, at=now, by=j["by"])
+        else:
+            ha.append({"at": now, "by": j["by"], "action": "déplacé vers %s" % b, "remote": new_a,
+                       "replaced": [x]})
+            pl["files"][a] = {"kind": "placeholder", "remote": new_a, "at": now, "by": j["by"],
+                              "size": j.get("size"), "label": j.get("label"), "key": j.get("key")}
     store.mutate(p["id"], fn)
 
 

@@ -287,6 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._precheck(pid)
             if m == "POST" and P[2] == "slots" and P[3] and P[4] == "upload":
                 return self._upload(pid, P[3], q)
+            if m == "POST" and P[2] == "slots" and P[3] and P[4] == "move":
+                return self._move(pid, P[3], self._json())
             if m == "POST" and P[2] == "slots" and P[3] and P[4] == "clear":
                 p = _player(pid)
                 _slot(p, P[3])
@@ -497,6 +499,32 @@ class Handler(BaseHTTPRequestHandler):
                 engine.enqueue(pid, "delete", remote=name, by=self._user())
                 deleted += 1
         return self._send(200, {"ok": True, "queued": len(jobs), "deleted": deleted})
+
+    def _move(self, pid, a, body):
+        """Déplacer le clip de l'emplacement `a` vers `body.to` (mode move|replace|swap)."""
+        p = _player(pid)
+        _slot(p, a)
+        b = str(body.get("to") or "")
+        _slot(p, b)
+        if a == b:
+            raise _err(400, "même emplacement")
+        mode = body.get("mode") or "move"
+        if mode not in ("move", "replace", "swap"):
+            raise _err(400, "mode inconnu")
+        ra, rb = p["files"].get(a) or {}, p["files"].get(b) or {}
+        if ra.get("kind") != "clip":
+            raise _err(409, "seul un clip livré par l'outil peut être déplacé")
+        if rb.get("kind") == "clip" and mode == "move":
+            raise _err(409, "l'emplacement %s porte déjà un clip : choisissez « échanger » ou « remplacer »" % b,
+                       reason="target_busy")
+        if mode == "swap" and rb.get("kind") != "clip":
+            mode = "move"
+        busy = [j for j in engine.jobs(pid) if j["num"] in (a, b) and j["state"] not in ("done", "error", "cancelled")]
+        if busy:
+            raise _err(409, "un transfert est en cours ou en attente sur l'emplacement %s" % busy[0]["num"])
+        job = engine.enqueue(pid, "move", num=a, target=b, mode="swap" if mode == "swap" else "move",
+                             original=ra.get("original"), by=self._user())
+        return self._send(200, {"ok": True, "job": job})
 
     def _delete_remote(self, pid, body):
         name = body.get("name") or ""

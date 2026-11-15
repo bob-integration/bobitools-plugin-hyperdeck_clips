@@ -150,3 +150,6 @@
 .hc-help summary { cursor: pointer; color: var(--text); }
 .hc-help ul { margin: 6px 0 0; padding-left: 18px; }
 .hc-help li { margin: 3px 0; }
+
+.hc-slot[draggable=true] { cursor: grab; }
+.hc-slot.moving { opacity: .45; }

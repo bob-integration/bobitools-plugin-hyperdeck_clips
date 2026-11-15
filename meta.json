@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.5.0",
+   "date": "2026-11-15",
+   "notes": "DÉPLACER UN CLIP d'une case à l'autre par glisser-déposer (ou « Déplacer vers… » dans le détail d'un emplacement, sans souris). Case vide : le clip est RENOMMÉ avec le nouveau numéro (il ne repasse pas par le réseau) et la case quittée reçoit son bouche-trou. Case déjà occupée par un clip : ÉCHANGER (trois renommages, rien d'envoyé ni de supprimé) ou REMPLACER (le clip de la cible est supprimé du HyperDeck). Aucun clip ne peut être perdu : le clip déplacé part d'abord sous un nom temporaire en fin de liste, rien n'est supprimé avant, et un refus de la machine en cours de route déclenche un retour en arrière (vérifié : renommage refusé → tout revient en place, aucun temporaire). Garde antenne et liste intacte comme pour une livraison. Historique : « reçu de », « déplacé vers », « échangé avec », avec la version."
+  },
+  {
    "version": "0.4.0",
    "date": "2026-11-15",
    "notes": "NOM DES BOUCHE-TROUS RÉGLABLE par lecteur (Réglages → Bouche-trous) : modèle à variables {num} {nom} {cat} {id} {lecteur}, défaut « {num} - VIDE - {nom} », aperçu en direct. Le modèle doit commencer par {num} suivi d'un séparateur (c'est le numéro en tête qui classe le fichier) ; un conseil s'affiche s'il ne contient plus de mot distinguant un bouche-trou d'un vrai clip. Changer le modèle RENOMME les bouche-trous en place (RNFR/RNTO : ni fabrication ni transfert, aucun rang déplacé) ; seuls ceux dont le contenu a changé (nom ou catégorie du CSV, format, durée, audio) sont refabriqués — empreinte du contenu mémorisée à la pose, et reconnaissance des bouche-trous posés avant cette version. CSV : aide « Comment construire le CSV ? », CSV EXEMPLE téléchargeable (deux Players, catégories, numéros à largeur égale) et EXPORT de la liste actuelle d'un lecteur (UTF-8 avec BOM, lisible par Excel)."
