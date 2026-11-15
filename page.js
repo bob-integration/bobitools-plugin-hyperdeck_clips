@@ -80,11 +80,17 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-reset").hidden = !canReset;
     }
 
+    // Rafraîchissement rapide pendant un transfert, ET pendant la minute qui suit (le
+    // serveur revérifie le HyperDeck, qui relit son disque en différé) : sans cela, la case
+    // gardait l'ancien fichier jusqu'à 8 s après la fin du transfert.
+    let lastActive = 0;
     function schedule() {
         clearTimeout(timer);
         if (!alive) return;
-        const busy = uploading || (view && (view.jobs || []).some((j) => !["error", "cancelled"].includes(j.state)));
-        timer = setTimeout(tick, busy ? 1500 : 8000);
+        const active = uploading || (view && (view.jobs || []).some((j) => !["error", "cancelled"].includes(j.state)));
+        if (active) lastActive = Date.now();
+        const fast = active || Date.now() - lastActive < 60000 || (view && view.order && view.order.settling);
+        timer = setTimeout(tick, fast ? 1500 : 8000);
     }
 
     async function tick() {

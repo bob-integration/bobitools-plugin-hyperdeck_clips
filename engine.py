@@ -541,7 +541,7 @@ def _swap(j, p):
         if not renamed:
             _cleanup_temp(p, temp)
         raise
-    _listing[p["id"]] = (time.time(), names)
+    _fresh_listing(p["id"], names)
     mine = [n for n in names if store.num_of(n) == num and store.is_media(n)]
     if mine != [final]:
         raise RuntimeError("après échange, l'emplacement %s porte : %s" % (num, ", ".join(mine) or "rien"))
@@ -676,7 +676,7 @@ def _move(j, p):
         names = ftp_names(ftp)
     finally:
         _close(ftp)
-    _listing[p["id"]] = (time.time(), names)
+    _fresh_listing(p["id"], names)
     for n, want in ((a, new_a), (b, new_b)):
         mine = [f for f in names if store.num_of(f) == n and store.is_media(f)]
         if mine != [want]:
@@ -737,7 +737,7 @@ def _rename_placeholder(j, p):
         names = ftp_names(ftp)
     finally:
         _close(ftp)
-    _listing[p["id"]] = (time.time(), names)
+    _fresh_listing(p["id"], names)
     if new not in names or old in names:
         raise RuntimeError("renommage non constaté sur le HyperDeck")
 
@@ -759,7 +759,7 @@ def _delete_remote(j, p):
         _log(j, "suppression de %s" % name)
         resp = ftp_delete(ftp, name)
         names = ftp_names(ftp)
-        _listing[p["id"]] = (time.time(), names)
+        _fresh_listing(p["id"], names)
         if name in names:
             raise RuntimeError("le HyperDeck a répondu « %s » mais le fichier est toujours là" % resp)
     finally:
@@ -775,10 +775,24 @@ def _delete_remote(j, p):
 # rétablissait seul. On revérifie à intervalles rapprochés après chaque modification, et
 # pendant cette fenêtre un écart est présenté comme « mise à jour en cours », pas comme
 # une panne. Passé la fenêtre, un écart restant est un VRAI problème (rouge).
-SETTLE_DELAYS = (2, 5, 10, 20, 40)
-SETTLE_WINDOW = sum(SETTLE_DELAYS) + 15
+SETTLE_DELAYS = (2, 3, 3, 4, 5, 8, 10, 15)    # revérifs à 2, 5, 8, 12, 17, 25, 35, 50 s
+SETTLE_WINDOW = max(90, sum(SETTLE_DELAYS) + 15)
 _last_change = {}           # pid → instant de la dernière modification FTP terminée
 _settle_gen = {}
+
+
+def _fresh_listing(pid, names):
+    """Relevé du disque fait PAR le transfert qui vient de finir : appliqué tout de suite au
+    dernier état affiché. Sans cela, la case gardait l'ancien fichier jusqu'à la
+    vérification suivante (« le clip n'apparaît pas, il faut cliquer Vérifier »). Seule la
+    partie FTP est mise à jour : ce que liste le HyperDeck (TCP) reste le dernier relevé,
+    et l'écart éventuel s'affiche comme tel (« ⟳ liste l'ancien »)."""
+    _listing[pid] = (time.time(), names)
+    sc = _scans.get(pid)
+    if sc and sc.get("ftp", {}).get("ok"):
+        old_sizes = sc["ftp"].get("sizes") or {}
+        sc["ftp"] = dict(sc["ftp"], files=names, sizes={n: v for n, v in old_sizes.items() if n in names},
+                         cached=False)
 
 
 def _changed(pid):

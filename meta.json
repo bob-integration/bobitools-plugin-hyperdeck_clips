@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.6.3",
+   "date": "2026-11-15",
+   "notes": "UN CLIP LIVRÉ APPARAÎT DÈS LA FIN DU TRANSFERT, sans cliquer « Vérifier ». Depuis la 0.6.1 la page ralentissait son rafraîchissement (8 s) dès que plus rien ne tournait, et le serveur n'actualisait l'état qu'à sa première revérification : pendant 8 à 10 s la barre de transfert disparaissait alors que la case montrait encore l'ancien bouche-trou. Le relevé du disque fait par le transfert lui-même est désormais appliqué immédiatement (la case passe à « Livré » ; si le HyperDeck n'a pas encore relu son disque, le rang l'indique honnêtement : « ⟳ liste l'ancien ») ; la page reste en rafraîchissement rapide (1,5 s) pendant la minute qui suit un transfert et tant que le HyperDeck relit son disque ; revérifications resserrées (2, 5, 8, 12, 17, 25, 35, 50 s), fenêtre avant le rouge inchangée (90 s)."
+  },
+  {
    "version": "0.6.2",
    "date": "2026-11-15",
    "notes": "« 550 File unavailable » EN SÉRIE après un changement de nom des bouche-trous : l'erreur venait de l'OUTIL. Les renommages étaient préparés avec le relevé du disque fait pendant les transferts précédents (listing mis en cache) ; après un second changement de modèle, chacun demandait au HyperDeck un fichier déjà renommé. Le renommage relit désormais le disque au moment de s'exécuter (renomme le fichier qui porte réellement ce numéro, ou ne fait rien s'il a déjà le bon nom). ERREURS QUALIFIÉES : chaque échec dit la commande, le fichier, la réponse exacte et le CÔTÉ (refusé par le HyperDeck / fichier introuvable / HyperDeck injoignable / protocole / erreur de l'outil) ; un refus sur un fichier présent est retenté 4 fois sur 10 s (disque en relecture). Échecs REGROUPÉS par cause en un bandeau (emplacements listés, Réessayer / Effacer) au lieu d'une ligne par case. La file se SUSPEND après 3 échecs identiques d'affilée (rien n'est perdu ; Reprendre / Annuler les transferts en attente). Le verdict vert compte aussi les bouche-trous à renommer ou refaire."
