@@ -1,0 +1,133 @@
+<!-- Clips HyperDeck — fragment monté par window.BTTools.hyperdeck_clips.mount(el, ctx).
+     Un onglet par lecteur ; pour le lecteur choisi, ses emplacements groupés par catégorie.
+     On glisse un fichier sur un emplacement pour le livrer (ou le remplacer). Les
+     dialogues ne sont JAMAIS réécrits par le rafraîchissement périodique. -->
+<div class="hc-app" id="hc-app">
+
+  <div class="hc-bar">
+    <strong class="hc-title" data-i18n="plugin.hyperdeck_clips.title">Clips HyperDeck</strong>
+    <nav class="hc-players" id="hc-players" aria-label="Lecteurs"></nav>
+    <span class="hc-spacer"></span>
+    <button class="btn btn-green" id="hc-add" type="button" data-i18n="plugin.hyperdeck_clips.add">+ Lecteur</button>
+  </div>
+
+  <div class="hc-none" id="hc-none" hidden>
+    <p data-i18n="plugin.hyperdeck_clips.none">Aucun lecteur. Ajoutez un HyperDeck, puis déposez sa liste de clips (CSV).</p>
+  </div>
+
+  <section class="hc-player" id="hc-player" hidden>
+    <header class="hc-head">
+      <div class="hc-head-id">
+        <h2 id="hc-name"></h2>
+        <div class="hc-head-sub" id="hc-sub"></div>
+      </div>
+      <div class="hc-head-actions">
+        <button class="btn" id="hc-scan" type="button" data-i18n="plugin.hyperdeck_clips.scan">Vérifier</button>
+        <button class="btn" id="hc-fill" type="button" data-i18n="plugin.hyperdeck_clips.fill">Combler les vides</button>
+        <button class="btn" id="hc-list-btn" type="button" data-i18n="plugin.hyperdeck_clips.list">Importer la liste (CSV)</button>
+        <button class="btn" id="hc-settings-btn" type="button" data-i18n="plugin.hyperdeck_clips.settings">Réglages</button>
+      </div>
+    </header>
+
+    <div class="hc-verdict" id="hc-verdict" role="status"></div>
+    <div class="hc-alerts" id="hc-alerts"></div>
+    <div class="hc-transfers" id="hc-transfers"></div>
+
+    <p class="hc-hint" id="hc-hint" data-i18n="plugin.hyperdeck_clips.hint">Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers nommés « 104 - … » peuvent être glissés d'un coup n'importe où sur la page.</p>
+    <div class="hc-cats" id="hc-cats"></div>
+  </section>
+
+  <input type="file" id="hc-file" accept=".mov,video/quicktime" hidden>
+
+  <!-- Détail d'un emplacement -->
+  <dialog class="hc-dialog" id="hc-slot-dlg">
+    <form method="dialog" class="hc-dlg-body">
+      <header class="hc-dlg-h"><h3 id="hc-slot-title"></h3><button class="btn" value="close" aria-label="Fermer">✕</button></header>
+      <div id="hc-slot-body"></div>
+      <footer class="hc-dlg-f" id="hc-slot-actions"></footer>
+    </form>
+  </dialog>
+
+  <!-- Réglages d'un lecteur -->
+  <dialog class="hc-dialog hc-dialog-wide" id="hc-set-dlg">
+    <form class="hc-dlg-body" id="hc-set-form">
+      <header class="hc-dlg-h"><h3 id="hc-set-title">Lecteur</h3><button class="btn" type="button" data-close aria-label="Fermer">✕</button></header>
+      <div class="hc-grid">
+        <label for="hc-s-name">Nom</label><input id="hc-s-name" name="name" placeholder="Lecteur 1" required>
+        <label for="hc-s-host">Adresse du HyperDeck</label><input id="hc-s-host" name="host" placeholder="10.0.0.20" required>
+        <label for="hc-s-ftp_port">Port FTP</label><input id="hc-s-ftp_port" name="ftp_port" type="number" min="1" max="65535">
+        <label for="hc-s-ftp_user">Identifiant FTP</label><input id="hc-s-ftp_user" name="ftp_user" placeholder="(anonyme)" autocomplete="off">
+        <label for="hc-s-ftp_password">Mot de passe FTP</label><input id="hc-s-ftp_password" name="ftp_password" type="password" autocomplete="new-password">
+        <label for="hc-s-ftp_dir">Disque (dossier FTP)</label>
+        <div class="hc-row"><input id="hc-s-ftp_dir" name="ftp_dir" placeholder="ssd1"><button class="btn" type="button" id="hc-browse">Parcourir…</button></div>
+        <div></div><div class="hc-browse" id="hc-browse-out" hidden></div>
+        <label for="hc-s-tcp_port">Port protocole (TCP)</label><input id="hc-s-tcp_port" name="tcp_port" type="number" min="1" max="65535">
+      </div>
+      <h4>Format des clips</h4>
+      <p class="hc-note">Le HyperDeck ne lit pas un clip dans un autre format que celui-ci : tout fichier différent est refusé avant envoi. Les bouche-trous sont fabriqués dans ce même format.</p>
+      <div class="hc-grid">
+        <label for="hc-s-codec">Codec</label>
+        <select id="hc-s-codec" name="codec_tag">
+          <option value="apch">ProRes 422 HQ</option><option value="apcn">ProRes 422</option>
+          <option value="apcs">ProRes 422 LT</option><option value="apco">ProRes 422 Proxy</option>
+          <option value="ap4h">ProRes 4444</option>
+        </select>
+        <label for="hc-s-width">Image</label>
+        <div class="hc-row"><input id="hc-s-width" name="width" type="number" min="16" class="hc-num"> × <input id="hc-s-height" name="height" type="number" min="16" class="hc-num" aria-label="Hauteur"></div>
+        <label for="hc-s-fps">Images par seconde</label>
+        <select id="hc-s-fps" name="fps">
+          <option value="25/1">25</option><option value="50/1">50</option>
+          <option value="24000/1001">23,976</option><option value="24/1">24</option>
+          <option value="30000/1001">29,97</option><option value="30/1">30</option>
+          <option value="60000/1001">59,94</option><option value="60/1">60</option>
+        </select>
+        <label for="hc-s-field">Balayage</label>
+        <select id="hc-s-field" name="field_order">
+          <option value="tt">Entrelacé, trame haute en premier</option>
+          <option value="bb">Entrelacé, trame basse en premier</option>
+          <option value="progressive">Progressif</option>
+        </select>
+      </div>
+      <h4>Bouche-trous</h4>
+      <div class="hc-grid">
+        <label for="hc-s-dur">Durée (secondes)</label><input id="hc-s-dur" name="placeholder_duration" type="number" min="1" max="600" class="hc-num">
+        <label for="hc-s-audio">Pistes audio (silence)</label><input id="hc-s-audio" name="audio_channels" type="number" min="0" max="16" class="hc-num">
+      </div>
+      <h4>Sécurité</h4>
+      <label class="hc-toggle"><input type="checkbox" class="ios-toggle" id="hc-s-air" name="protect_on_air">
+        <span>Ne jamais retirer un clip que le HyperDeck est en train de lire (l'échange attend la fin de lecture)</span></label>
+      <div class="hc-test" id="hc-test-out"></div>
+      <footer class="hc-dlg-f">
+        <button class="btn btn-red" type="button" id="hc-del" hidden>Supprimer ce lecteur</button>
+        <span class="hc-spacer"></span>
+        <button class="btn" type="button" id="hc-test">Tester la connexion</button>
+        <button class="btn btn-green" type="submit">Enregistrer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Import de la liste -->
+  <dialog class="hc-dialog hc-dialog-wide" id="hc-list-dlg">
+    <div class="hc-dlg-body">
+      <header class="hc-dlg-h"><h3>Liste des clips attendus</h3><button class="btn" type="button" data-close aria-label="Fermer">✕</button></header>
+      <label class="hc-drop" id="hc-csv-drop">
+        <input type="file" id="hc-csv" accept=".csv,text/csv,text/plain" hidden>
+        <span>Déposez le CSV ici, ou cliquez pour le choisir.<br><small>Colonnes : Numéro et Nom obligatoires ; Catégorie, ID, Player facultatives. Séparateur « ; » ou « , ».</small></span>
+      </label>
+      <div id="hc-list-out"></div>
+      <footer class="hc-dlg-f">
+        <span class="hc-spacer"></span>
+        <button class="btn btn-green" type="button" id="hc-list-apply" hidden>Appliquer cette liste</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Dépôt groupé / refus / confirmations -->
+  <dialog class="hc-dialog hc-dialog-wide" id="hc-msg-dlg">
+    <div class="hc-dlg-body">
+      <header class="hc-dlg-h"><h3 id="hc-msg-title"></h3><button class="btn" type="button" data-close aria-label="Fermer">✕</button></header>
+      <div id="hc-msg-body"></div>
+      <footer class="hc-dlg-f" id="hc-msg-actions"></footer>
+    </div>
+  </dialog>
+</div>

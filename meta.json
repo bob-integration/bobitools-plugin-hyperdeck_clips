@@ -1,0 +1,9 @@
+{
+ "changelog": [
+  {
+   "version": "0.1.0",
+   "date": "2026-11-15",
+   "notes": "Première version. Plusieurs lecteurs, chacun avec SON HyperDeck et SA liste (CSV déposé ; un CSV à plusieurs Players fait choisir le sien). Emplacements groupés par catégorie : numéro, nom, fichier en place, version, état, rang relu sur la machine. Dépôt par glisser-déposer (un emplacement, ou plusieurs fichiers « 104 - … » d'un coup) ; pré-contrôle du format sur l'en-tête lu dans le navigateur, puis ffprobe du fichier complet ; nom sur la machine « <Numéro> - <nom d'origine> ». Remplacement V2… sans décaler la liste (nom temporaire zzz_envoi_ en fin de liste, attente si le clip est à l'antenne, suppression puis renommage ; repli par envoi direct si le renommage FTP est refusé). Bouche-trous au format exact (une image ProRes encodée puis répétée : 0,5 s pour 10 s). Vérification TCP 9993 (clips count / clips get) : nombre, rang de chaque emplacement, fichiers étrangers, doublons, temporaires oubliés. Correction proposée de l'en-tête de trame des .mov sortis de ffmpeg (tb/bb → tt, sans réencodage). Un transfert FTP à la fois par HyperDeck, clips livrés avant bouche-trous. Testé sur banc (FTP pyftpdlib + simulateur 9993), JAMAIS sur un vrai HyperDeck."
+  }
+ ]
+}

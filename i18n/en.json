@@ -1,0 +1,10 @@
+{
+  "plugin.hyperdeck_clips.title": "HyperDeck clips",
+  "plugin.hyperdeck_clips.add": "+ Player",
+  "plugin.hyperdeck_clips.none": "No player yet. Add a HyperDeck, then drop its clip list (CSV).",
+  "plugin.hyperdeck_clips.scan": "Check",
+  "plugin.hyperdeck_clips.fill": "Fill empty slots",
+  "plugin.hyperdeck_clips.list": "Import list (CSV)",
+  "plugin.hyperdeck_clips.settings": "Settings",
+  "plugin.hyperdeck_clips.hint": "Drop a file on a slot to deliver or replace it. Several files named “104 - …” can be dropped at once anywhere on the page."
+}

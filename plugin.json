@@ -1,0 +1,149 @@
+{
+  "license": "GPL-3.0-or-later",
+  "type": "hyperdeck_clips",
+  "label": "Clips HyperDeck",
+  "version": "0.1.0",
+  "runtime": "docker",
+  "description": "Livraison des clips sur un ou plusieurs lecteurs Blackmagic HyperDeck dont l'exploitant rappelle les clips PAR LEUR RANG. Chaque lecteur a sa liste attendue (CSV déposé : Numéro, Nom, Catégorie…), présentée en emplacements groupés par catégorie. On glisse un fichier sur un emplacement : son format est contrôlé par ffprobe (pré-contrôle immédiat sur l'en-tête, puis contrôle du fichier complet), puis il part au HyperDeck par FTP sous le nom « <Numéro> - <nom d'origine> ». Remplacement (V2, V3…) SANS décaler la liste : envoi sous un nom temporaire classé en fin de liste, contrôle que le clip n'est pas à l'antenne, puis échange. Chaque emplacement vide reçoit un BOUCHE-TROU au format exact des vrais clips (fond noir, infos en gris), pour que la liste garde tous ses rangs. Vérification par le protocole réseau (TCP 9993, clips count / clips get) : nombre de clips, rang de chacun, fichiers étrangers qui décaleraient la liste. Un seul transfert FTP à la fois par HyperDeck, avancement affiché (navigateur → serveur, puis serveur → HyperDeck). Historique des versions par emplacement.",
+  "badge": {
+    "label": "CL",
+    "class": "tool-hyperdeck-clips",
+    "oklch": "0.72 0.15 55"
+  },
+  "nav": {
+    "section": "enregistreurs",
+    "label": "Enregistreurs",
+    "order": 30
+  },
+  "ui": {
+    "page_html": "page.html",
+    "page_js": "page.js",
+    "page_css": "page.css"
+  },
+  "docker": {
+    "image": "bobitool-hyperdeck_clips:0.1.0",
+    "build": true,
+    "port": 8080,
+    "volume": "/data",
+    "env_settings": [
+      "scan_interval",
+      "ftp_timeout"
+    ]
+  },
+  "config_schema": [
+    {
+      "key": "scan_interval",
+      "type": "number",
+      "default": 60,
+      "min": 0,
+      "max": 3600,
+      "label": "Vérification automatique de chaque lecteur (secondes, 0 = jamais) — ouvre une session FTP et une connexion TCP 9993 brèves"
+    },
+    {
+      "key": "ftp_timeout",
+      "type": "number",
+      "default": 20,
+      "min": 5,
+      "max": 120,
+      "label": "Délai d'attente FTP (secondes)"
+    }
+  ],
+  "permissions": [
+    {
+      "id": "clips.deliver",
+      "label": "Livrer des clips",
+      "default_roles": [
+        "operator"
+      ],
+      "description": "Déposer ou remplacer un clip, le retirer (bouche-trou), combler les emplacements vides."
+    },
+    {
+      "id": "clips.manage",
+      "label": "Gérer les lecteurs",
+      "default_roles": [
+        "operator"
+      ],
+      "description": "Ajouter, régler ou supprimer un lecteur, importer sa liste (CSV), supprimer un fichier étranger du HyperDeck."
+    }
+  ],
+  "acl": {
+    "resources": [
+      {
+        "key": "player",
+        "label": "Lecteurs",
+        "choices": "players",
+        "choices_list": "players"
+      }
+    ],
+    "routes": [
+      {
+        "method": "POST",
+        "path": "players/{player}/scan",
+        "perm": null
+      },
+      {
+        "method": "POST",
+        "path": "players/{player}/precheck",
+        "perm": null
+      },
+      {
+        "method": "POST",
+        "path": "players/{player}/slots/{num}/upload",
+        "perm": "clips.deliver",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "players/{player}/slots/{num}/clear",
+        "perm": "clips.deliver",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "players/{player}/fill",
+        "perm": "clips.deliver",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "*",
+        "path": "players/{player}/pending/**",
+        "perm": "clips.deliver",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "jobs/**",
+        "perm": "clips.deliver"
+      },
+      {
+        "method": "*",
+        "path": "players/{player}/**",
+        "perm": "clips.manage",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "*",
+        "path": "players/{player}",
+        "perm": "clips.manage",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "*",
+        "path": "**",
+        "perm": "clips.manage"
+      }
+    ]
+  }
+}
