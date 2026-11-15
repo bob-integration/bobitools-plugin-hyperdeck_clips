@@ -160,6 +160,7 @@ window.BTTools.hyperdeck_clips = (function () {
                 + " — " + esc(l.count) + " clips, importée le " + esc(fmtDate(l.imported_at)) + '</span>'
               : '<span>Pas encore de liste</span>',
         ].join("");
+        renderStorage();
         renderVerdict();
         renderAlerts();
         renderTransfers();
@@ -208,6 +209,30 @@ window.BTTools.hyperdeck_clips = (function () {
         el.className = "hc-verdict " + cls;
         el.innerHTML = '<span>' + txt + '</span>' + (sc ? '<span class="hc-when">vérifié à ' + esc(fmtTime(sc.at))
             + (sc.ftp.cached ? " (listing pendant un transfert)" : "") + '</span>' : "");
+    }
+
+    // Espace : le serveur garde chaque clip ENTIER avant de l'envoyer au HyperDeck.
+    function renderStorage() {
+        const st = view.storage || {}, sv = st.server, dk = st.deck, parts = [];
+        if (sv) {
+            const ratio = sv.used / sv.total;
+            const cls = sv.free < sv.margin + 1024 ** 3 ? "bad" : sv.free < sv.margin + 4 * 1024 ** 3 ? "warn" : "";
+            parts.push('<span class="hc-store ' + cls + '" title="Chaque clip déposé transite en entier par ce disque avant son envoi au HyperDeck. Marge gardée libre : '
+                + fmtSize(sv.margin) + '.">Serveur : <strong>' + fmtSize(sv.free) + " libres</strong> sur " + fmtSize(sv.total)
+                + ' <span class="hc-bar-p ' + cls + '"><i style="--p:' + ratio.toFixed(3) + '"></i></span>'
+                + (sv.in_transit ? " · en transit " + fmtSize(sv.in_transit) : "") + " · clip max ≈ " + fmtSize(Math.max(0, sv.free - sv.margin)) + "</span>");
+        }
+        if (dk) {
+            const bits = [];
+            if (dk.files != null) bits.push(dk.files + " clips" + (dk.bytes != null ? ", " + (dk.complete ? "" : "≥ ") + fmtSize(dk.bytes) : ""));
+            if (dk.slot) {
+                if (dk.slot.volume) bits.push("volume « " + esc(dk.slot.volume) + " »");
+                if (dk.slot.recording_time != null) bits.push("reste ≈ " + fmtHours(dk.slot.recording_time) + " d'enregistrement");
+            }
+            parts.push('<span class="hc-store" title="Le protocole du HyperDeck donne le temps d\'enregistrement restant (dans le format d\'enregistrement courant), pas les octets libres.">HyperDeck : <strong>'
+                + (bits[0] || "?") + "</strong>" + bits.slice(1).map((b) => " · " + b).join("") + "</span>");
+        }
+        $("#hc-storage").innerHTML = parts.join("");
     }
 
     function p_tcp() { return (view && view.player.tcp_port) || 9993; }
@@ -363,6 +388,9 @@ window.BTTools.hyperdeck_clips = (function () {
                 + (sum.duration ? " · " + fmtDur(sum.duration) : "") + (sum.header_fixed ? " · en-tête de trame corrigé" : "")]);
         }
         rows.push(["Bouche-trou", '<span class="hc-mono">' + esc(s.placeholder_name) + "</span>"]);
+        if (s.job) rows.push([s.job.state === "error" ? "Dernier échec" : "Transfert",
+            '<span class="hc-badge ' + (s.job.state === "error" ? "bad" : "info") + '">' + esc(JOB[s.job.state] || s.job.state) + "</span> "
+            + esc(s.job.error || s.job.detail || "") + (s.job.log && s.job.log.length ? '<details><summary>Journal</summary><pre class="hc-mono">' + esc(s.job.log.join("\n")) + "</pre></details>" : "")]);
         const hist = (s.history || []).slice().reverse();
         const body = '<dl class="hc-kv">' + rows.map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("") + "</dl>"
             + "<h4>Historique</h4>" + (hist.length ? '<div class="hc-scroll"><table class="hc-table"><thead><tr><th>Quand</th><th>Geste</th><th>Fichier</th><th>Par</th></tr></thead><tbody>'
@@ -374,7 +402,7 @@ window.BTTools.hyperdeck_clips = (function () {
             const acts = [];
             if (canDeliver) {
                 acts.push('<button class="btn btn-green" type="button" data-pick="' + esc(num) + '">' + (s.status === "delivered" ? "Remplacer (V" + ((f.v || 0) + 1) + ")…" : "Choisir un fichier…") + "</button>");
-                if (s.status === "delivered" || s.status === "foreign_file")
+                if (s.status === "delivered" || s.status === "foreign_file" || s.status === "duplicate")
                     acts.push('<button class="btn btn-red" type="button" data-clear="' + esc(num) + '">Retirer (remettre le bouche-trou)</button>');
                 if (["missing", "stale_placeholder"].includes(s.status))
                     acts.push('<button class="btn" type="button" data-clear="' + esc(num) + '">Poser le bouche-trou</button>');
@@ -480,6 +508,14 @@ window.BTTools.hyperdeck_clips = (function () {
         if (uploading) return;
         const u = uploads.find((x) => x.state === "waiting");
         if (!u) return;
+        const sv = view && view.storage && view.storage.server;
+        if (sv && u.file.size + sv.margin > sv.free) {
+            finish(u, "failed", "place insuffisante");
+            msg("Place insuffisante sur le serveur", "<p>« " + esc(u.file.name) + " » pèse " + fmtSize(u.file.size) + " ; le serveur n'a que "
+                + fmtSize(sv.free) + " libres (dont " + fmtSize(sv.margin) + " gardés en réserve). Le clip y transite en entier avant d'être envoyé au HyperDeck.</p>"
+                + "<p>Attendez la fin des transferts en cours, ou libérez de la place sur le serveur.</p>", []);
+            return pump();
+        }
         uploading = true;
         u.state = "uploading";
         render();
@@ -904,10 +940,11 @@ window.BTTools.hyperdeck_clips = (function () {
         if (n == null) return "?";
         const u = ["o", "Ko", "Mo", "Go"]; let i = 0; n = +n;
         while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-        return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + " " + u[i];
+        return (i ? n.toFixed(n < 10 ? 1 : 0).replace(".", ",") : n) + " " + u[i];
     }
     function fmtDate(s) { if (!s) return ""; const d = new Date(s); return isNaN(d) ? s : d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }); }
     function fmtTime(s) { if (!s) return ""; const d = new Date(s); return isNaN(d) ? s : d.toLocaleTimeString("fr-FR"); }
+    function fmtHours(sec) { const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); return h ? h + " h " + String(m).padStart(2, "0") : m + " min"; }
     function fmtDur(sec) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); return m + " min " + String(s).padStart(2, "0") + " s"; }
 
     return { mount, unmount };

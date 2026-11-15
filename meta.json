@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.3.0",
+   "date": "2026-11-15",
+   "notes": "ESPACE DISQUE AFFICHÉ sous l'en-tête du lecteur : serveur (libre / total, en transit, taille de clip maximale acceptée — chaque clip y transite en entier avant le FTP) et HyperDeck (nombre et taille des clips relevés par FTP, volume, temps d'enregistrement restant annoncé par le protocole, qui ne donne pas d'octets libres). Un dépôt trop gros pour le serveur est refusé AVANT l'envoi. RETRAIT (remettre le bouche-trou) : la suppression FTP passait par ftplib.delete, qui n'accepte que 250/200 ; même famille que le RNFR=200 du HyperDeck — la suppression accepte désormais tout 2xx/3xx et n'est tenue pour faite qu'après relecture du dossier. « Retirer » aussi proposé sur un emplacement en double (nettoie tous ses fichiers). Le détail d'un emplacement montre le dernier échec et le journal du transfert."
+  },
+  {
    "version": "0.2.2",
    "date": "2026-11-15",
    "notes": "« Fichier illisible » sur un clip conforme : le fichier n'atteignait pas l'outil. Un cœur Bobi.Tools sans le relais des envois (app/routes.py:_proxy_stream) remplace le corps par « {} » : ffprobe lisait 2 octets. L'outil exige désormais un envoi binaire et, sinon, le dit en clair (« cœur trop ancien ») dès le pré-contrôle, avant d'envoyer le fichier entier. Le message « illisible » donne aussi l'erreur de ffprobe et le nombre d'octets reçus."

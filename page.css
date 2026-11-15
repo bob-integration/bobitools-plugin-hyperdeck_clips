@@ -135,3 +135,13 @@
 .hc-kv dt { color: var(--text-muted); }
 .hc-kv dd { margin: 0; overflow-wrap: anywhere; }
 .hc-problems { margin: 0; padding-left: 18px; color: var(--status-stopped-fg); }
+
+/* Espace disque : serveur (transit des clips) et HyperDeck */
+.hc-storage { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.hc-store { display: flex; align-items: center; gap: 8px; }
+.hc-store strong { color: var(--text); font-weight: 600; }
+.hc-store .hc-bar-p { width: 120px; }
+.hc-store.warn strong { color: var(--status-warning-fg); }
+.hc-store.bad strong { color: var(--status-stopped-fg); }
+.hc-bar-p.warn > i { background: var(--status-warning-fg); }
+.hc-bar-p.bad > i { background: var(--status-stopped-fg); }

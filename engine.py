@@ -80,11 +80,17 @@ def _close(ftp):
             pass
 
 
-def ftp_names(ftp):
-    """Noms des FICHIERS du dossier courant (MLSD si gérée, sinon NLST)."""
+def ftp_names(ftp, sizes=None):
+    """Noms des FICHIERS du dossier courant (MLSD si gérée, sinon NLST). Si `sizes` est un
+    dict, il reçoit {nom: octets} quand le serveur donne la taille (MLSD seulement)."""
     try:
-        return sorted(n for n, f in ftp.mlsd(facts=["type"])
-                      if f.get("type", "file") == "file")
+        out = []
+        for n, f in ftp.mlsd(facts=["type", "size"]):
+            if f.get("type", "file") == "file":
+                out.append(n)
+                if sizes is not None and str(f.get("size", "")).isdigit():
+                    sizes[n] = int(f["size"])
+        return sorted(out)
     except ftplib.all_errors:
         out = []
         for n in ftp.nlst():
@@ -101,6 +107,13 @@ def ftp_rename(ftp, src, dst):
     donc accepté au RNFR ; le RNTO doit répondre 2xx."""
     ftp.sendcmd("RNFR " + src)          # lève error_temp/error_perm sur 4xx/5xx
     return ftp.voidcmd("RNTO " + dst)
+
+
+def ftp_delete(ftp, name):
+    """DELE tolérant : `ftplib.delete` n'accepte que 250/200, et le FTP du HyperDeck a déjà
+    montré des codes hors norme (200 au RNFR). Tout 2xx/3xx passe ; la VRAIE preuve est la
+    relecture du dossier, faite après chaque échange ou suppression."""
+    return ftp.sendcmd("DELE " + name)  # lève error_temp/error_perm sur 4xx/5xx
 
 
 def ftp_dirs(p, path):
@@ -352,7 +365,7 @@ def _swap(j, p):
         ftp = ftp_open(p)
         try:
             for o in olds:
-                ftp.delete(o)
+                ftp_delete(ftp, o)
             try:
                 ftp_rename(ftp, temp, final)
                 renamed = True
@@ -370,7 +383,7 @@ def _swap(j, p):
                     ftp.storbinary("STOR " + final, fh, blocksize=1 << 20,
                                    callback=lambda c: j.__setitem__("sent", j["sent"] + len(c)))
                 try:
-                    ftp.delete(temp)
+                    ftp_delete(ftp, temp)
                 except ftplib.all_errors:
                     pass
             names = ftp_names(ftp)
@@ -392,7 +405,7 @@ def _cleanup_temp(p, temp):
     try:
         ftp = ftp_open(p)
         try:
-            ftp.delete(temp)
+            ftp_delete(ftp, temp)
         finally:
             _close(ftp)
     except Exception:
@@ -428,8 +441,11 @@ def _delete_remote(j, p):
     ftp = ftp_open(p)
     try:
         _log(j, "suppression de %s" % name)
-        ftp.delete(name)
-        _listing[p["id"]] = (time.time(), ftp_names(ftp))
+        resp = ftp_delete(ftp, name)
+        names = ftp_names(ftp)
+        _listing[p["id"]] = (time.time(), names)
+        if name in names:
+            raise RuntimeError("le HyperDeck a répondu « %s » mais le fichier est toujours là" % resp)
     finally:
         _close(ftp)
 
@@ -456,12 +472,13 @@ def scan(pid):
     else:
         try:
             ftp = ftp_open(p)
+            sizes = {}
             try:
-                names = ftp_names(ftp)
+                names = ftp_names(ftp, sizes)
             finally:
                 _close(ftp)
             _listing[pid] = (time.time(), names)
-            res["ftp"] = {"ok": True, "files": names}
+            res["ftp"] = {"ok": True, "files": names, "sizes": sizes}
         except Exception as e:
             res["ftp"] = {"ok": False, "error": str(e)}
     try:

@@ -122,6 +122,16 @@ def read(host, port=PORT, timeout=5):
         out = {"model": pre.get("model"), "protocol": pre.get("protocol version")}
         code, text, lines = c.command("transport info", timeout)
         out["transport"] = _params(lines) if code < 300 else {"error": "%d %s" % (code, text)}
+        # Disque actif : nom du volume et temps d'enregistrement restant (dans le format
+        # d'enregistrement courant). Le protocole ne donne PAS d'octets libres.
+        sid = str(out["transport"].get("slot id") or "")
+        if sid.isdigit():
+            code, text, lines = c.command("slot info: slot id: %s" % sid, timeout)
+            if code < 300:
+                si = _params(lines)
+                out["slot"] = {"id": sid, "volume": si.get("volume name"), "status": si.get("status"),
+                               "recording_time": int(si["recording time"]) if str(si.get("recording time", "")).isdigit() else None,
+                               "video_format": si.get("video format")}
         code, text, lines = c.command("clips count", timeout)
         p = _params(lines)
         out["clips_count"] = int(p["clip count"]) if code < 300 and p.get("clip count", "").isdigit() else None

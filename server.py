@@ -81,13 +81,45 @@ def _view(p):
                 "ftp": {k: v for k, v in sc["ftp"].items() if k != "files"},
                 "deck": {k: v for k, v in sc["deck"].items() if k not in ("clips",)},
                 "files_count": len(sc["ftp"].get("files") or [])}
-    return {"player": store.public(p), "slots": slots,
+    return {"player": store.public(p), "slots": slots, "storage": _storage(p, sc),
             "categories": csvlist.categories(p["slots"]),
             "format_label": media.format_label(p["format"]),
             "scan": scan, "anomalies": {k: ev[k] for k in ("foreign", "temps", "others")},
             "order": ev["order"], "jobs": [j for j in js if j["state"] != "done"][-30:],
             "done": [j for j in js if j["state"] == "done"][-10:],
             "pending": engine.pending_list(p["id"])}
+
+
+def _dir_bytes(path):
+    total = 0
+    try:
+        for e in os.scandir(path):
+            if e.is_file(follow_symlinks=False):
+                total += e.stat(follow_symlinks=False).st_size
+            elif e.is_dir(follow_symlinks=False):
+                total += _dir_bytes(e.path)
+    except OSError:
+        pass
+    return total
+
+
+def _storage(p, sc):
+    """Espace : celui du SERVEUR (chaque clip y transite en entier avant le FTP) et ce
+    qu'on sait du HyperDeck (taille des clips relevée par FTP, temps d'enregistrement
+    restant annoncé par le protocole — il ne donne pas d'octets libres)."""
+    du = shutil.disk_usage(store.DATA_DIR)
+    out = {"server": {"total": du.total, "used": du.used, "free": du.free,
+                      "in_transit": _dir_bytes(store.INCOMING) + _dir_bytes(store.WORK),
+                      "margin": SPACE_MARGIN}}
+    if sc and sc["ftp"].get("ok"):
+        sizes = sc["ftp"].get("sizes") or {}
+        media_ = [n for n in sc["ftp"]["files"] if store.is_media(n)]
+        known = [sizes[n] for n in media_ if n in sizes]
+        out["deck"] = {"files": len(media_), "bytes": sum(known) if known else None,
+                       "complete": len(known) == len(media_)}
+    if sc and sc["deck"].get("ok") and sc["deck"].get("slot"):
+        out.setdefault("deck", {})["slot"] = sc["deck"]["slot"]
+    return out
 
 
 def _summary(p):
