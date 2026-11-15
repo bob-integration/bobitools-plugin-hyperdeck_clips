@@ -280,7 +280,7 @@ def _worker(pid):
         finally:
             j["ended"] = time.time()
             _discard_local(j)
-            threading.Thread(target=_safe_scan, args=(pid,), daemon=True).start()
+            _changed(pid)
 
 
 def _render(j, p):
@@ -641,6 +641,49 @@ def _delete_remote(j, p):
 
 # ── Vérification ────────────────────────────────────────────────────────────
 
+# ── Le HyperDeck relit son disque EN DIFFÉRÉ ────────────────────────────────
+# Relevé sur machine réelle le 2026-11-15 : juste après un échange FTP, le fichier est
+# bien en place (FTP) mais `clips get` annonce encore l'ancien pendant quelques secondes.
+# Vérifier immédiatement affichait donc « liste décalée » en rouge pour un état qui se
+# rétablissait seul. On revérifie à intervalles rapprochés après chaque modification, et
+# pendant cette fenêtre un écart est présenté comme « mise à jour en cours », pas comme
+# une panne. Passé la fenêtre, un écart restant est un VRAI problème (rouge).
+SETTLE_DELAYS = (2, 5, 10, 20, 40)
+SETTLE_WINDOW = sum(SETTLE_DELAYS) + 15
+_last_change = {}           # pid → instant de la dernière modification FTP terminée
+_settle_gen = {}
+
+
+def _changed(pid):
+    _last_change[pid] = time.time()
+    gen = _settle_gen[pid] = _settle_gen.get(pid, 0) + 1
+    threading.Thread(target=_settle, args=(pid, gen), daemon=True).start()
+
+
+def _settle(pid, gen):
+    for d in SETTLE_DELAYS:
+        time.sleep(d)
+        if _settle_gen.get(pid) != gen:
+            return                  # une modification plus récente a pris le relais
+        if busy(pid):
+            continue                # un transfert tourne : sa fin relancera la séquence
+        try:
+            sc = scan(pid)
+            p = store.get(pid)
+            o = evaluate(p, sc)["order"] if p else None
+            if o is None or o.get("ok") or not sc["deck"].get("ok"):
+                return
+        except Exception:
+            traceback.print_exc()
+            return
+
+
+def settling(pid):
+    """Vrai tant que le HyperDeck peut encore être en train de relire son disque."""
+    t = _last_change.get(pid)
+    return bool(t and time.time() - t < SETTLE_WINDOW) or busy(pid)
+
+
 def _safe_scan(pid):
     try:
         scan(pid)
@@ -752,10 +795,36 @@ def evaluate(p, sc):
         extra = [c["name"] for c in clips if deck.strip_ext(c["name"]) not in known]
         count = d.get("clips_count") if d.get("clips_count") is not None else len(clips)
         tr = d.get("transport") or {}
-        out["order"] = {"ok": bad == 0 and count == len(slots) and not extra,
+        ok = bad == 0 and count == len(slots) and not extra
+        # Écarts DÉCRITS, emplacement par emplacement : ce qu'il y a sur le disque (FTP) et
+        # ce que le HyperDeck liste pour ce numéro. « Le HyperDeck liste encore l'ancien
+        # fichier » n'est pas « la liste est décalée » : l'exploitant doit pouvoir le lire.
+        by_num_deck = {}
+        for c in clips:
+            by_num_deck.setdefault(store.num_of(c["name"]), []).append(c["name"])
+        gaps = []
+        for s in slots:
+            e = out["slots"][s["num"]]
+            if e.get("rank") == e["rank_expected"]:
+                continue
+            seen = by_num_deck.get(s["num"], [])
+            e["deck_sees"] = seen
+            if len(e["files"]) == 1 and e["rank"] is None:
+                kind = "stale" if seen else "unseen"     # ancien nom encore listé / rien
+            elif len(e["files"]) != 1:
+                kind = "disk"                           # problème côté disque (absent, doublon)
+            else:
+                kind = "rank"                           # vu, mais pas au bon rang
+            e["gap"] = kind
+            gaps.append({"num": s["num"], "kind": kind, "disk": e["files"], "deck": seen,
+                         "deck_rank": rank.get(deck.strip_ext(seen[0])) if seen else None,
+                         "rank": e.get("rank"), "expected": e["rank_expected"]})
+        out["order"] = {"ok": ok,
                         "expected": len(slots), "count": count, "misplaced": bad,
-                        "extra": extra, "status": tr.get("status"), "clip_id": tr.get("clip id"),
-                        "slot_id": tr.get("slot id")}
+                        "extra": extra, "gaps": gaps, "status": tr.get("status"),
+                        "clip_id": tr.get("clip id"), "slot_id": tr.get("slot id"),
+                        "settling": (not ok) and settling(p["id"]),
+                        "since_change": round(time.time() - _last_change[p["id"]]) if p["id"] in _last_change else None}
     return out
 
 

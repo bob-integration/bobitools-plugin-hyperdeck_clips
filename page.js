@@ -131,7 +131,8 @@ window.BTTools.hyperdeck_clips = (function () {
         if (!p.ftp_ok && !p.deck_ok) return { cls: "bad", text: "injoignable" };
         const c = p.counts || {};
         const bad = (c.missing || 0) + (c.duplicate || 0);
-        if (bad || (p.order && !p.order.ok)) return { cls: "bad", text: "liste décalée" };
+        if (p.order && !p.order.ok && p.order.settling && !bad) return { cls: "warn", text: "relecture du HyperDeck…" };
+        if (bad || (p.order && !p.order.ok)) return { cls: "bad", text: "écart avec le HyperDeck" };
         if (c.stale_placeholder || c.foreign_file || !p.deck_ok) return { cls: "warn", text: "à surveiller" };
         return { cls: "ok", text: (c.delivered || 0) + "/" + p.slots + " livrés" };
     }
@@ -189,12 +190,8 @@ window.BTTools.hyperdeck_clips = (function () {
                         + (counts.delivered || 0) + " livrés, " + (counts.empty || 0) + " bouche-trous.";
                     cls = "ok";
                 } else {
-                    const why = [];
-                    if (o.count !== o.expected) why.push("le HyperDeck compte <strong>" + o.count + "</strong> clips pour " + o.expected + " attendus");
-                    if (o.misplaced) why.push(o.misplaced + " emplacement(s) au mauvais rang");
-                    if (o.extra && o.extra.length) why.push(o.extra.length + " clip(s) hors liste");
-                    txt = "<strong>⚠ Liste décalée :</strong> " + why.join(", ") + ". Les rangs rappelés par l'exploitant ne correspondent plus.";
-                    cls = "bad";
+                    txt = gapsText(o);
+                    cls = o.settling ? "warn" : "bad";
                 }
                 if (o.status) txt += ' <span class="hc-badge">' + esc(o.status) + (o.clip_id ? " · clip " + esc(o.clip_id) : "") + "</span>";
             } else {
@@ -234,6 +231,31 @@ window.BTTools.hyperdeck_clips = (function () {
                 + (bits[0] || "?") + "</strong>" + bits.slice(1).map((b) => " · " + b).join("") + "</span>");
         }
         $("#hc-storage").innerHTML = parts.join("");
+    }
+
+    // L'écart, DÉCRIT : ce qu'il y a sur le disque et ce que le HyperDeck liste, avec la
+    // conséquence pour l'exploitant (« rappeler le rang 11 lancerait … »). Orange tant que
+    // le HyperDeck peut encore être en train de relire son disque, rouge s'il persiste.
+    function gapsText(o) {
+        const gaps = o.gaps || [], q = (n) => "« " + esc(n) + " »";
+        const lines = gaps.slice(0, 6).map((g) => {
+            const disk = g.disk[0];
+            if (g.kind === "stale") return "<li><strong>" + esc(g.num) + "</strong> : sur le disque " + q(disk) + ", le HyperDeck liste encore " + q(g.deck[0])
+                + (g.deck_rank ? " — rappeler le rang " + g.deck_rank + " lancerait encore l'ancien" : "") + "</li>";
+            if (g.kind === "unseen") return "<li><strong>" + esc(g.num) + "</strong> : " + q(disk) + " est sur le disque mais absent de la liste du HyperDeck</li>";
+            if (g.kind === "disk") return "<li><strong>" + esc(g.num) + "</strong> : " + (g.disk.length ? g.disk.length + " fichiers portent ce numéro sur le disque" : "aucun fichier sur le disque") + "</li>";
+            return "<li><strong>" + esc(g.num) + "</strong> : " + q(disk) + " est au rang " + esc(g.rank) + " au lieu de " + esc(g.expected) + "</li>";
+        });
+        if (gaps.length > 6) lines.push("<li>… et " + (gaps.length - 6) + " autre(s)</li>");
+        const staleNames = new Set(gaps.flatMap((g) => g.kind === "stale" ? g.deck : []));
+        const extra = (o.extra || []).filter((n) => !staleNames.has(n));
+        if (extra.length) lines.push("<li>hors liste, vu par le HyperDeck : " + extra.slice(0, 4).map(q).join(", ") + (extra.length > 4 ? "…" : "") + "</li>");
+        if (o.count !== o.expected) lines.push("<li>le HyperDeck compte <strong>" + o.count + "</strong> clips pour " + o.expected + " attendus</li>");
+        const head = o.settling
+            ? "<strong>⟳ Le HyperDeck n'a pas encore pris en compte le dernier changement.</strong> Il relit son disque après chaque transfert ; nouvelle vérification automatique dans quelques secondes."
+            : "<strong>⚠ Le HyperDeck ne voit pas la liste attendue</strong>" + (o.since_change != null && o.since_change < 3600 ? ", " + o.since_change + " s après le dernier transfert" : "")
+              + ". Les rangs rappelés par l'exploitant ne correspondent pas à la liste.";
+        return head + '<ul class="hc-gaps">' + lines.join("") + "</ul>";
     }
 
     function p_tcp() { return (view && view.player.tcp_port) || 9993; }
@@ -314,8 +336,14 @@ window.BTTools.hyperdeck_clips = (function () {
         if (s.status === "delivered" && f && f.v) badge = '<span class="hc-v">V' + f.v + "</span>" + badge;
         let rank = "";
         if (s.rank_expected) {
+            const settling = view.order && view.order.settling;
+            const seen = (s.deck_sees || [])[0];
+            const tip = s.gap === "stale" ? "Le HyperDeck liste encore « " + seen + " » à la place de ce fichier"
+                : s.gap === "unseen" ? "Fichier présent sur le disque mais pas encore dans la liste du HyperDeck"
+                : "Rang attendu " + s.rank_expected;
+            const lbl = s.gap === "stale" ? "liste l'ancien" : s.gap === "unseen" ? "pas encore vu" : "rang " + (s.rank || "—") + " ≠ " + s.rank_expected;
             rank = s.rank === s.rank_expected ? '<span class="hc-slot-rank" title="Rang dans la liste du HyperDeck">rang ' + s.rank + "</span>"
-                : '<span class="hc-slot-rank bad" title="Rang attendu ' + s.rank_expected + '">rang ' + (s.rank || "—") + " ≠ " + s.rank_expected + "</span>";
+                : '<span class="hc-slot-rank ' + (settling && s.gap !== "disk" ? "pend" : "bad") + '" title="' + esc(tip) + '">' + (settling && s.gap !== "disk" ? "⟳ " : "") + esc(lbl) + "</span>";
         }
         const file = s.files && s.files.length ? s.files.join(" · ") : (s.status === "unknown" ? "" : "aucun fichier");
         let prog = "";

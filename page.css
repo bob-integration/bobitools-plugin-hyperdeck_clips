@@ -177,3 +177,7 @@
 .hc-bulk-opts { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .hc-bulk-opts label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .hc-inline { font-size: 12px; color: var(--text-muted); }
+
+.hc-slot-rank.pend { color: var(--status-warning-fg); font-weight: 600; }
+.hc-gaps { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.hc-gaps li { margin: 2px 0; }

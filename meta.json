@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.6.1",
+   "date": "2026-11-15",
+   "notes": "VÉRIFICATION REPRÉSENTATIVE après un dépôt. Relevé sur machine réelle : le HyperDeck relit son disque EN DIFFÉRÉ — juste après un échange FTP, le fichier est en place mais `clips get` annonce encore l'ancien quelques secondes. L'outil vérifiait aussitôt et affichait « Liste décalée » en rouge, puis attendait une minute. Désormais : revérifications rapprochées après chaque transfert (2, 5, 10, 20, 40 s, arrêt dès que tout colle) ; l'écart est DÉCRIT emplacement par emplacement (« 113 : sur le disque « … », le HyperDeck liste encore « … » — rappeler le rang 11 lancerait encore l'ancien », fichier pas encore vu, mauvais rang, problème côté disque, clips hors liste, nombre de clips) ; orange « relecture du HyperDeck » tant que la relecture est plausible (≈ 90 s après le dernier transfert), ROUGE si l'écart persiste au-delà, avec le délai écoulé. Rien n'est masqué : l'écart reste affiché dans les deux cas."
+  },
+  {
    "version": "0.6.0",
    "date": "2026-11-15",
    "notes": "APPARENCE DES BOUCHE-TROUS réglable par lecteur, avec APERÇU en direct dans les réglages : couleur de fond, couleur du texte, fond PROPRE À CHAQUE CATÉGORIE, infos affichées (numéro, nom, catégorie, lecteur, mention) et texte de la mention ; les lignes affichées se recentrent. Changer l'apparence (ou le format, la durée, l'audio) rend les bouche-trous existants « périmés » et l'outil propose de les refaire. CACHE : option « Garder les bouche-trous sur le serveur » (désactivée par défaut, taille estimée affichée, le cache n'est plus alimenté sous 2 Go libres), taille du cache dans la ligne Espace et bouton pour le vider. DÉPÔT GROUPÉ : pendant le survol, les cases que les fichiers rempliront s'allument à partir de la case visée (cases déjà livrées sautées) avec un bandeau « 3 fichiers → 102 à 202 » ; au lâcher, tableau fichier → case avec deux modes (à la suite dans l'ordre naturel des noms à partir d'une case choisie, ou selon le numéro en tête du nom), clips remplacés et fichiers sans case signalés."
