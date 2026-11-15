@@ -212,8 +212,38 @@ window.BTTools.hyperdeck_clips = (function () {
             if (!sc.ftp.ok && !sc.deck.ok) cls = "bad";
         }
         el.className = "hc-verdict " + cls;
-        el.innerHTML = '<span>' + txt + '</span>' + (sc ? '<span class="hc-when">vérifié à ' + esc(fmtTime(sc.at))
-            + (sc.ftp.cached ? " (listing pendant un transfert)" : "") + '</span>' : "");
+        // Barre : le premier énoncé en gras seulement (une ligne) ; le texte complet va à droite.
+        const m = /<strong>([\s\S]*?)<\/strong>/.exec(txt);
+        let sum = m ? m[1] : txt;
+        if (sc && !sc.ftp.ok) sum += " · FTP injoignable";
+        if (sc && !sc.deck.ok) sum += " · protocole injoignable";
+        verdictSum = sum;
+        $("#hc-v-detail").innerHTML = txt;
+        $("#hc-v-when").textContent = sc ? "vérifié à " + fmtTime(sc.at) + (sc.ftp.cached ? " (listing en cache)" : "") : "";
+        $("#hc-v-when").title = sc && sc.ftp.cached ? "Listing relevé pendant un transfert" : "";
+        updateBar();
+    }
+
+    // Résumé + compteurs de la barre (appelé aussi quand seuls transferts/alertes changent).
+    let verdictSum = "";
+    function updateBar() {
+        const nx = $("#hc-transfers").querySelectorAll(".hc-xfer").length;
+        const na = $("#hc-alerts").querySelectorAll(".hc-alert").length + $("#hc-transfers").querySelectorAll(".hc-alert").length;
+        const extra = [];
+        if (nx) extra.push(nx + (nx > 1 ? " transferts" : " transfert"));
+        if (na) extra.push(na + (na > 1 ? " alertes" : " alerte"));
+        $("#hc-v-sum").innerHTML = "<strong>" + verdictSum + "</strong>" + (extra.length ? ' <span class="hc-v-n">· ' + extra.join(" · ") + "</span>" : "");
+        $("#hc-v-sum").title = $("#hc-v-sum").textContent;
+        const open = sideOpen();
+        $("#hc-body").classList.toggle("no-side", !open);
+        const b = $("#hc-side-btn");
+        b.textContent = open ? "Détails ◂" : "Détails ▸";
+        b.setAttribute("aria-expanded", String(open));
+    }
+    let sideMem = null;   // repli si le stockage du navigateur est indisponible
+    function sideOpen() {
+        if (sideMem !== null) return sideMem;
+        try { return localStorage.getItem("hc.side") !== "0"; } catch (e) { return true; }
     }
 
     // Espace : le serveur garde chaque clip ENTIER avant de l'envoyer au HyperDeck.
@@ -314,6 +344,7 @@ window.BTTools.hyperdeck_clips = (function () {
                 + ' <button class="btn" type="button" data-drop-pending="' + esc(x.id) + '">Abandonner</button></div>');
         });
         $("#hc-alerts").innerHTML = out.join("");
+        updateBar();
     }
 
     function renderTransfers() {
@@ -372,6 +403,7 @@ window.BTTools.hyperdeck_clips = (function () {
         if (placeholders.length) rows.push('<div class="hc-xfer"><span class="hc-num-l">…</span><span class="hc-xfer-t">'
             + placeholders.length + " bouche-trou(s) en attente</span><span></span><span class=\"hc-xfer-d\">passent après les clips livrés</span></div>");
         $("#hc-transfers").innerHTML = rows.join("");
+        updateBar();
     }
 
     function uploadOf(num) { return uploads.find((u) => u.num === num && !["done", "failed"].includes(u.state)); }
@@ -1149,6 +1181,11 @@ window.BTTools.hyperdeck_clips = (function () {
             const t = ev.target.closest("button, .hc-slot, [data-pid]");
             if (!t) return;
             const ds = t.dataset;
+            if (t.id === "hc-side-btn") {
+                sideMem = !sideOpen();
+                try { localStorage.setItem("hc.side", sideMem ? "1" : "0"); } catch (e) { /* gardé en mémoire seulement */ }
+                updateBar(); return;
+            }
             try {
                 if (ds.pid) return selectPlayer(ds.pid);
                 if (t.classList.contains("hc-slot")) return openSlot(ds.num);

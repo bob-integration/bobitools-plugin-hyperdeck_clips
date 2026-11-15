@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.8.1",
+   "date": "2026-11-15",
+   "notes": "LES CASES NE BOUGENT PLUS pendant les transferts. La barre de verdict reste en haut, sur UNE ligne de hauteur fixe : seuls sa couleur (vert, orange, rouge) et son résumé changent, avec le nombre de transferts et d'alertes. Le détail (verdict complet, transferts avec leur avancement, alertes) passe dans une colonne à droite, collée en haut de l'écran et qui défile seule. Le bouton « Détails » la montre ou la cache (choix gardé par le navigateur) ; elle ne s'ouvre jamais toute seule, pour ne rien décaler pendant un glisser. L'indication « Lâchez sur une case » flotte au-dessus des cases au lieu de s'insérer devant. Écran étroit : la colonne passe sous la barre."
+  },
+  {
    "version": "0.8.0",
    "date": "2026-11-15",
    "notes": "LE HYPERDECK NE RENOMME PAS PAR FTP. Relevé par « Tester la connexion » sur HyperDeck Studio HD Pro : le RNFR reçoit DEUX réponses, « 350 Requested file action pending » puis « 550 Requested action not taken. File unavailable », pour un fichier présent. Toutes les erreurs de renommage vues jusqu'ici (200 au RNFR, 350 au RNTO, 503) venaient de cette double réponse lue à moitié. L'outil lit désormais toutes les réponses du RNFR, essaie une fois le chemin absolu, et, en cas de refus, retient que ce lecteur ne renomme pas (jusqu'au redémarrage ou à un test réussi). Il passe alors par des envois complets : LIVRAISON = envoi direct sous le nom définitif puis suppression de l'ancien (plus de double transfert par un temporaire) ; DÉPLACER / ÉCHANGER = relecture du clip depuis le HyperDeck (RETR) puis renvoi sous le nouveau nom, suppression de l'ancien en dernier ; CHANGER LE NOM DES BOUCHE-TROUS = refabrication et renvoi. Avertissement affiché sous l'espace disque. Contrepartie, inévitable sans renommage : pendant un envoi, l'emplacement peut porter deux fichiers. Banc : réponse exacte du HyperDeck reproduite ; livraison, remplacement, déplacement, échange, renommage des bouche-trous réussis ; machine qui renomme : chemin rapide inchangé."
@@ -70,5 +75,6 @@
    "date": "2026-11-15",
    "notes": "Première version. Plusieurs lecteurs, chacun avec SON HyperDeck et SA liste (CSV déposé ; un CSV à plusieurs Players fait choisir le sien). Emplacements groupés par catégorie : numéro, nom, fichier en place, version, état, rang relu sur la machine. Dépôt par glisser-déposer (un emplacement, ou plusieurs fichiers « 104 - … » d'un coup) ; pré-contrôle du format sur l'en-tête lu dans le navigateur, puis ffprobe du fichier complet ; nom sur la machine « <Numéro> - <nom d'origine> ». Remplacement V2… sans décaler la liste (nom temporaire zzz_envoi_ en fin de liste, attente si le clip est à l'antenne, suppression puis renommage ; repli par envoi direct si le renommage FTP est refusé). Bouche-trous au format exact (une image ProRes encodée puis répétée : 0,5 s pour 10 s). Vérification TCP 9993 (clips count / clips get) : nombre, rang de chaque emplacement, fichiers étrangers, doublons, temporaires oubliés. Correction proposée de l'en-tête de trame des .mov sortis de ffmpeg (tb/bb → tt, sans réencodage). Un transfert FTP à la fois par HyperDeck, clips livrés avant bouche-trous. Testé sur banc (FTP pyftpdlib + simulateur 9993), JAMAIS sur un vrai HyperDeck."
   }
- ]
+ ],
+ "version": null
 }

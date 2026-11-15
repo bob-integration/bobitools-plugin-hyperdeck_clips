@@ -31,13 +31,27 @@
       </div>
     </header>
 
-    <div class="hc-verdict" id="hc-verdict" role="status"></div>
-    <div class="hc-alerts" id="hc-alerts"></div>
-    <div class="hc-transfers" id="hc-transfers"></div>
-
-    <p class="hc-hint" id="hc-hint" data-i18n="plugin.hyperdeck_clips.hint">Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers d'un coup : lâchés sur une case, ils remplissent les cases suivantes (aperçu pendant le survol) ; lâchés ailleurs, ils sont répartis selon le numéro en tête de leur nom.</p>
+    <!-- Barre de verdict : UNE ligne de hauteur fixe (seuls couleur et résumé changent). Le
+         détail (verdict complet, transferts, alertes) va dans la colonne de droite, montrée ou
+         cachée par « Détails » (choix gardé par le navigateur, jamais ouverte toute seule) :
+         rien ne décale les cases pendant un glisser. -->
+    <div class="hc-verdict" id="hc-verdict" role="status">
+      <span class="hc-v-sum" id="hc-v-sum"></span>
+      <span class="hc-when" id="hc-v-when"></span>
+      <button class="btn hc-side-btn" id="hc-side-btn" type="button" aria-controls="hc-side" aria-expanded="true">Détails</button>
+    </div>
     <div class="hc-drop-hint" id="hc-drop-hint" role="status" hidden></div>
-    <div class="hc-cats" id="hc-cats"></div>
+    <div class="hc-body" id="hc-body">
+      <div class="hc-main">
+        <p class="hc-hint" id="hc-hint" data-i18n="plugin.hyperdeck_clips.hint">Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers d'un coup : lâchés sur une case, ils remplissent les cases suivantes (aperçu pendant le survol) ; lâchés ailleurs, ils sont répartis selon le numéro en tête de leur nom.</p>
+        <div class="hc-cats" id="hc-cats"></div>
+      </div>
+      <aside class="hc-side" id="hc-side" aria-label="Détails du lecteur">
+        <div class="hc-side-sec"><div class="hc-side-h">État</div><div class="hc-v-detail" id="hc-v-detail"></div></div>
+        <div class="hc-side-sec"><div class="hc-side-h">Transferts</div><div class="hc-transfers" id="hc-transfers"></div><p class="hc-note hc-side-empty">Aucun transfert en cours.</p></div>
+        <div class="hc-side-sec"><div class="hc-side-h">Alertes</div><div class="hc-alerts" id="hc-alerts"></div><p class="hc-note hc-side-empty">Aucune alerte.</p></div>
+      </aside>
+    </div>
   </section>
 
   <input type="file" id="hc-file" accept=".mov,video/quicktime" hidden>

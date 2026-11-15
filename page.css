@@ -34,10 +34,14 @@
 .hc-mono { font-family: var(--font-mono); font-size: 12px; }
 
 /* Verdict : LA ligne que l'exploitant lit avant l'antenne */
-.hc-verdict { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius);
-  border: 1px solid var(--border); background: var(--bg-elev); font-size: 14px; }
+.hc-verdict { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-elev); font-size: 14px; height: 42px; box-sizing: border-box;
+  white-space: nowrap; overflow: hidden; }
+.hc-v-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hc-v-sum .hc-v-n { color: var(--text-muted); font-size: 12.5px; }
+.hc-verdict .hc-side-btn { flex: none; padding: 3px 10px; font-size: 12px; }
 .hc-verdict strong { font-size: 15px; }
-.hc-verdict .hc-when { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+.hc-verdict .hc-when { flex: none; color: var(--text-muted); font-size: 12px; }
 .hc-verdict.ok { border-color: var(--status-running-fg); background: var(--status-running-bg); }
 .hc-verdict.warn { border-color: var(--status-warning-fg); background: var(--status-warning-bg); }
 .hc-verdict.bad { border-color: var(--status-stopped-fg); background: var(--status-stopped-bg); }
@@ -171,7 +175,7 @@
 
 /* Dépôt groupé : cases qui seraient remplies pendant le survol */
 .hc-slot.fill { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
-.hc-drop-hint { position: sticky; top: 8px; z-index: 5; align-self: center; padding: 6px 14px; border-radius: var(--radius);
+.hc-drop-hint { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 50; max-width: calc(100vw - 32px); padding: 6px 14px; border-radius: var(--radius);
   background: var(--accent); color: var(--btn-text, var(--bg)); font-size: 13px; font-weight: 600; box-shadow: var(--shadow); pointer-events: none; }
 .hc-drop-hint[hidden] { display: none; }
 .hc-bulk-opts { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
@@ -181,3 +185,25 @@
 .hc-slot-rank.pend { color: var(--status-warning-fg); font-weight: 600; }
 .hc-gaps { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .hc-gaps li { margin: 2px 0; }
+
+/* Deux colonnes : cases à gauche, détails à droite (collants, défilent seuls). */
+.hc-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.hc-body.no-side { grid-template-columns: minmax(0, 1fr); }
+.hc-body.no-side .hc-side { display: none; }
+.hc-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hc-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 76px;
+  max-height: calc(100vh - 92px); overflow-y: auto; min-width: 0; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); }
+.hc-side-sec { display: flex; flex-direction: column; gap: 6px; }
+.hc-side-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 600; }
+.hc-side-empty { font-size: 12px; }
+.hc-transfers:not(:empty) + .hc-side-empty, .hc-alerts:not(:empty) + .hc-side-empty { display: none; }
+.hc-v-detail { font-size: 12.5px; overflow-wrap: anywhere; }
+.hc-v-detail ul { margin: 6px 0 0; padding-left: 18px; }
+.hc-side .hc-xfer { grid-template-columns: 44px minmax(0, 1fr); gap: 4px 8px; }
+.hc-side .hc-xfer > .hc-bar-p, .hc-side .hc-xfer > .hc-xfer-d { grid-column: 1 / -1; }
+.hc-side .hc-alert { overflow-wrap: anywhere; }
+@media (max-width: 980px) {
+  .hc-body { grid-template-columns: 1fr; }
+  .hc-side { position: static; max-height: none; order: -1; }
+}
