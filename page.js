@@ -24,7 +24,7 @@ window.BTTools.hyperdeck_clips = (function () {
     let players = [], pid = null, view = null;
     let uploads = [];          // file locale : {key, num, file, state, pct, error, fix}
     let uploading = false;
-    let canDeliver = true, canManage = true;
+    let canDeliver = true, canManage = true, canReset = true;
     let listParsed = null;     // dernier aperçu d'import CSV
     let slotDlgNum = null;
 
@@ -71,11 +71,13 @@ window.BTTools.hyperdeck_clips = (function () {
             if (!r.admin) {
                 canDeliver = (r.granted || []).includes("clips.deliver");
                 canManage = (r.granted || []).includes("clips.manage");
+                canReset = (r.granted || []).includes("clips.reset");
             }
         } catch (e) { /* le serveur tranchera */ }
         $("#hc-add").hidden = !canManage;
         $("#hc-list-btn").hidden = !canManage;
         $("#hc-fill").hidden = !canDeliver;
+        $("#hc-reset").hidden = !canReset;
     }
 
     function schedule() {
@@ -718,6 +720,55 @@ window.BTTools.hyperdeck_clips = (function () {
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
     }
 
+    // ── Fin de tournage ───────────────────────────────────────
+    // Tous les emplacements repassent au bouche-trou. Plan relu sur la machine, puis
+    // confirmation en tapant le nom du lecteur : un geste qui vide la machine ne doit pas
+    // pouvoir partir d'un clic malheureux.
+    async function resetFlow() {
+        let plan;
+        try { plan = (await ctx.api("players/" + pid + "/reset", { method: "POST", body: {} })).plan; }
+        catch (e) { if (!e.rightsShown) toast(e.message, "error"); return; }
+        const name = view.player.name;
+        const n = plan.slots.length;
+        const bs = plan.by_status;
+        const lab = { delivered: "clip(s) livré(s)", foreign_file: "fichier(s) non suivi(s)", stale_placeholder: "bouche-trou(s) périmé(s)",
+            missing: "emplacement(s) sans fichier", duplicate: "emplacement(s) en double" };
+        let html = "";
+        if (!n && !plan.foreign.length && !plan.temps.length) {
+            msg("Fin de tournage — " + name, "<p>Rien à faire : les " + plan.total + " emplacements portent déjà leur bouche-trou, et aucun fichier hors liste.</p>", []);
+            return;
+        }
+        html += "<p>Sur <strong>" + esc(name) + "</strong>, <strong>" + n + "</strong> emplacement(s) sur " + plan.total + " vont repasser au bouche-trou :</p><ul>"
+            + Object.keys(bs).map((k) => "<li>" + bs[k] + " " + esc(lab[k] || k) + "</li>").join("") + "</ul>";
+        if (n) html += '<div class="hc-scroll"><table class="hc-table"><thead><tr><th>N°</th><th>Nom</th><th>Fichier retiré du HyperDeck</th></tr></thead><tbody>'
+            + plan.slots.map((s) => "<tr><td><strong>" + esc(s.num) + "</strong></td><td>" + esc(s.nom) + '</td><td class="hc-mono">'
+                + (s.files.length ? s.files.map(esc).join("<br>") : "—") + "</td></tr>").join("") + "</tbody></table></div>";
+        const extra = plan.foreign.concat(plan.temps);
+        if (extra.length) html += '<label class="hc-toggle"><input type="checkbox" class="ios-toggle" id="hc-reset-foreign" checked><span>Supprimer aussi '
+            + extra.length + " fichier(s) hors liste : " + extra.map((x) => '<span class="hc-mono">' + esc(x) + "</span>").join(", ") + "</span></label>";
+        if (plan.busy) html += '<div class="hc-alert bad">' + plan.busy + " transfert(s) en cours ou en attente : attendez-les ou annulez-les d'abord.</div>";
+        html += '<p class="hc-note">Chaque clip est échangé un par un, comme une livraison : la liste garde tous ses rangs pendant l\'opération, '
+            + "et un clip en cours de lecture n'est pas retiré avant la fin. Les fichiers effacés du HyperDeck ne sont pas récupérables ; l'historique est conservé.</p>"
+            + '<label class="hc-grid"><span>Tapez <strong>' + esc(name) + '</strong> pour confirmer</span><input id="hc-reset-confirm" autocomplete="off"></label>';
+        const d = msg("Fin de tournage — " + name, html, [{
+            label: "Tout remettre en bouche-trous", cls: "btn-red",
+            fn: async () => {
+                const foreign = !!(document.getElementById("hc-reset-foreign") || {}).checked;
+                try {
+                    const r = await ctx.api("players/" + pid + "/reset", { method: "POST", body: { confirm: typed, foreign } });
+                    toast(r.queued + " bouche-trou(s) en file" + (r.deleted ? ", " + r.deleted + " suppression(s)" : ""), "info");
+                    await loadView(); schedule();
+                } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
+            },
+        }]);
+        let typed = "";
+        const go = d.querySelector("#hc-msg-actions .btn-red");
+        go.disabled = true;
+        const inp = d.querySelector("#hc-reset-confirm");
+        inp.addEventListener("input", () => { typed = inp.value; go.disabled = inp.value !== name || plan.busy > 0; });
+        inp.focus();
+    }
+
     // ── Événements ────────────────────────────────────────────
     function bind() {
         root.addEventListener("click", async (ev) => {
@@ -780,6 +831,7 @@ window.BTTools.hyperdeck_clips = (function () {
             finally { b.disabled = false; }
         };
         $("#hc-fill").onclick = fill;
+        $("#hc-reset").onclick = resetFlow;
         $("#hc-list-btn").onclick = openList;
         $("#hc-list-apply").onclick = applyList;
         $("#hc-csv").onchange = (e) => e.target.files[0] && readCsv(e.target.files[0]);

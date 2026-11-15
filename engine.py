@@ -142,6 +142,15 @@ def enqueue(pid, kind, num=None, local=None, original=None, remote=None, by="", 
            "created": time.time(), "started": None, "ended": None,
            "cancel": False, "force": False}
     with _glock:
+        if kind == "deliver":
+            # Un bouche-trou ENCORE EN FILE pour cet emplacement passerait après la livraison
+            # (priorités) et écraserait le clip qu'on vient de livrer. La dernière intention
+            # gagne : on l'annule. (Un bouche-trou déjà en cours d'envoi, lui, finit d'abord,
+            # puis la livraison le remplace — l'ordre final reste le bon.)
+            for o in _jobs.values():
+                if o["player"] == pid and o["num"] == num and o["kind"] == "placeholder" and o["state"] == "queued":
+                    o["state"], o["ended"] = "cancelled", time.time()
+                    _log(o, "annulé : un clip a été livré sur cet emplacement")
         _jobs[job["id"]] = job
         _prune()
     # Un vrai clip passe AVANT les bouche-trous en attente : combler 91 emplacements ne doit

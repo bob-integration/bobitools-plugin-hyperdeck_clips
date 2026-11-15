@@ -6,5 +6,6 @@
   "plugin.hyperdeck_clips.fill": "Combler les vides",
   "plugin.hyperdeck_clips.list": "Importer la liste (CSV)",
   "plugin.hyperdeck_clips.settings": "Réglages",
-  "plugin.hyperdeck_clips.hint": "Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers nommés « 104 - … » peuvent être glissés d'un coup n'importe où sur la page."
+  "plugin.hyperdeck_clips.hint": "Glissez un fichier sur un emplacement pour le livrer ou le remplacer. Plusieurs fichiers nommés « 104 - … » peuvent être glissés d'un coup n'importe où sur la page.",
+  "plugin.hyperdeck_clips.reset": "Fin de tournage…"
 }

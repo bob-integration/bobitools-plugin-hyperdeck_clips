@@ -2,7 +2,7 @@
   "license": "GPL-3.0-or-later",
   "type": "hyperdeck_clips",
   "label": "Clips HyperDeck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "runtime": "docker",
   "description": "Livraison des clips sur un ou plusieurs lecteurs Blackmagic HyperDeck dont l'exploitant rappelle les clips PAR LEUR RANG. Chaque lecteur a sa liste attendue (CSV déposé : Numéro, Nom, Catégorie…), présentée en emplacements groupés par catégorie. On glisse un fichier sur un emplacement : son format est contrôlé par ffprobe (pré-contrôle immédiat sur l'en-tête, puis contrôle du fichier complet), puis il part au HyperDeck par FTP sous le nom « <Numéro> - <nom d'origine> ». Remplacement (V2, V3…) SANS décaler la liste : envoi sous un nom temporaire classé en fin de liste, contrôle que le clip n'est pas à l'antenne, puis échange. Chaque emplacement vide reçoit un BOUCHE-TROU au format exact des vrais clips (fond noir, infos en gris), pour que la liste garde tous ses rangs. Vérification par le protocole réseau (TCP 9993, clips count / clips get) : nombre de clips, rang de chacun, fichiers étrangers qui décaleraient la liste. Un seul transfert FTP à la fois par HyperDeck, avancement affiché (navigateur → serveur, puis serveur → HyperDeck). Historique des versions par emplacement.",
   "badge": {
@@ -21,7 +21,7 @@
     "page_css": "page.css"
   },
   "docker": {
-    "image": "bobitool-hyperdeck_clips:0.1.0",
+    "image": "bobitool-hyperdeck_clips:0.2.0",
     "build": true,
     "port": 8080,
     "volume": "/data",
@@ -56,6 +56,14 @@
         "operator"
       ],
       "description": "Déposer ou remplacer un clip, le retirer (bouche-trou), combler les emplacements vides."
+    },
+    {
+      "id": "clips.reset",
+      "label": "Remettre à zéro en fin de tournage",
+      "default_roles": [
+        "operator"
+      ],
+      "description": "Remplacer TOUS les clips livrés d'un lecteur par des bouche-trous (et, en option, supprimer les fichiers hors liste)."
     },
     {
       "id": "clips.manage",
@@ -106,6 +114,14 @@
         "method": "POST",
         "path": "players/{player}/fill",
         "perm": "clips.deliver",
+        "resource": {
+          "player": "{player}"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "players/{player}/reset",
+        "perm": "clips.reset",
         "resource": {
           "player": "{player}"
         }

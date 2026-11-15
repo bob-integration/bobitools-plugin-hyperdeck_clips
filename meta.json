@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.2.0",
+   "date": "2026-11-15",
+   "notes": "FIN DE TOURNAGE : un bouton remet tous les emplacements d'un lecteur en bouche-trou (clips livrés, fichiers non suivis, bouche-trous périmés, doublons, emplacements vides), et supprime en option les fichiers hors liste. Plan relu sur la machine et affiché clip par clip avant d'agir, confirmation en tapant le nom du lecteur, refus tant qu'un transfert est en cours. Même échange que pour une livraison : la liste garde ses rangs pendant toute l'opération et un clip à l'antenne n'est pas retiré avant la fin de sa lecture. Historique conservé. Nouvelle permission clips.reset. CORRIGÉ : un clip livré pendant un remplissage de bouche-trous pouvait être écrasé ensuite par le bouche-trou resté en file pour le même emplacement (les livraisons passent en priorité, le bouche-trou attendait derrière). Une livraison annule désormais les bouche-trous encore en file sur son emplacement."
+  },
+  {
    "version": "0.1.0",
    "date": "2026-11-15",
    "notes": "Première version. Plusieurs lecteurs, chacun avec SON HyperDeck et SA liste (CSV déposé ; un CSV à plusieurs Players fait choisir le sien). Emplacements groupés par catégorie : numéro, nom, fichier en place, version, état, rang relu sur la machine. Dépôt par glisser-déposer (un emplacement, ou plusieurs fichiers « 104 - … » d'un coup) ; pré-contrôle du format sur l'en-tête lu dans le navigateur, puis ffprobe du fichier complet ; nom sur la machine « <Numéro> - <nom d'origine> ». Remplacement V2… sans décaler la liste (nom temporaire zzz_envoi_ en fin de liste, attente si le clip est à l'antenne, suppression puis renommage ; repli par envoi direct si le renommage FTP est refusé). Bouche-trous au format exact (une image ProRes encodée puis répétée : 0,5 s pour 10 s). Vérification TCP 9993 (clips count / clips get) : nombre, rang de chaque emplacement, fichiers étrangers, doublons, temporaires oubliés. Correction proposée de l'en-tête de trame des .mov sortis de ffmpeg (tb/bb → tt, sans réencodage). Un transfert FTP à la fois par HyperDeck, clips livrés avant bouche-trous. Testé sur banc (FTP pyftpdlib + simulateur 9993), JAMAIS sur un vrai HyperDeck."

@@ -6,5 +6,6 @@
   "plugin.hyperdeck_clips.fill": "Fill empty slots",
   "plugin.hyperdeck_clips.list": "Import list (CSV)",
   "plugin.hyperdeck_clips.settings": "Settings",
-  "plugin.hyperdeck_clips.hint": "Drop a file on a slot to deliver or replace it. Several files named “104 - …” can be dropped at once anywhere on the page."
+  "plugin.hyperdeck_clips.hint": "Drop a file on a slot to deliver or replace it. Several files named “104 - …” can be dropped at once anywhere on the page.",
+  "plugin.hyperdeck_clips.reset": "End of shoot…"
 }

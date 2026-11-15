@@ -223,6 +223,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, _view(_player(pid)))
             if m == "POST" and P[2] == "fill":
                 return self._fill(pid)
+            if m == "POST" and P[2] == "reset":
+                return self._reset(pid, self._json())
             if m == "POST" and P[2] == "test":
                 return self._test(pid, self._json())
             if m == "POST" and P[2] == "ftp" and P[3] == "ls":
@@ -405,6 +407,47 @@ class Handler(BaseHTTPRequestHandler):
         nums = [n for n in engine.fill_plan(p, sc) if n not in queued]
         jobs = [engine.enqueue(pid, "placeholder", num=n, by=self._user()) for n in nums]
         return self._send(200, {"ok": True, "queued": len(jobs)})
+
+    def _reset(self, pid, body):
+        """FIN DE TOURNAGE : chaque emplacement repasse au bouche-trou.
+
+        Toujours en deux temps : sans `confirm`, on renvoie le PLAN (ce qui serait retiré,
+        relu sur la machine à l'instant) ; avec `confirm` = nom exact du lecteur, on
+        l'exécute. Le même mécanisme d'échange que pour une livraison est utilisé, emplacement
+        par emplacement : la liste garde tous ses rangs pendant toute l'opération, et un clip
+        en cours de lecture n'est pas retiré sous les yeux de l'antenne.
+        L'historique est conservé (une entrée « retiré » par clip).
+        """
+        p = _player(pid)
+        sc = engine.scan(pid)
+        if not sc["ftp"].get("ok"):
+            raise _err(502, "FTP injoignable : %s" % sc["ftp"].get("error"))
+        ev = engine.evaluate(p, sc)
+        nums = [s["num"] for s in p["slots"] if ev["slots"][s["num"]]["status"] != "empty"]
+        by_status = {}
+        for n in nums:
+            st = ev["slots"][n]["status"]
+            by_status[st] = by_status.get(st, 0) + 1
+        clips = [{"num": s["num"], "nom": s["nom"], "files": ev["slots"][s["num"]]["files"],
+                  "status": ev["slots"][s["num"]]["status"]} for s in p["slots"] if s["num"] in nums]
+        extra = ev["foreign"] + ev["temps"]
+        active = [j for j in engine.jobs(pid) if j["state"] not in ("done", "error", "cancelled")]
+        plan = {"slots": clips, "by_status": by_status, "foreign": ev["foreign"],
+                "temps": ev["temps"], "busy": len(active), "total": len(p["slots"])}
+        if body.get("confirm") is None:
+            return self._send(200, {"ok": True, "plan": plan})
+        if body.get("confirm") != p["name"]:
+            raise _err(400, "confirmation incorrecte : tapez exactement le nom du lecteur")
+        if active:
+            raise _err(409, "%d transfert(s) en cours ou en attente : attendez-les ou annulez-les "
+                            "avant la remise à zéro" % len(active))
+        jobs = [engine.enqueue(pid, "placeholder", num=n, by=self._user()) for n in nums]
+        deleted = 0
+        if body.get("foreign"):
+            for name in extra:
+                engine.enqueue(pid, "delete", remote=name, by=self._user())
+                deleted += 1
+        return self._send(200, {"ok": True, "queued": len(jobs), "deleted": deleted})
 
     def _delete_remote(self, pid, body):
         name = body.get("name") or ""
