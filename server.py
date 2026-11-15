@@ -120,7 +120,20 @@ def _storage(p, sc):
         out["deck"] = {"files": len(media_), "bytes": sum(known) if known else None,
                        "complete": len(known) == len(media_)}
     if sc and sc["deck"].get("ok") and sc["deck"].get("slot"):
-        out.setdefault("deck", {})["slot"] = sc["deck"]["slot"]
+        d = out.setdefault("deck", {})
+        d["slot"] = sc["deck"]["slot"]
+        # Espace libre : le protocole ne donne que le TEMPS d'enregistrement restant. Converti
+        # en octets au débit du format d'enregistrement courant → estimation (« ≈ »).
+        import deck as _deck
+        cfg = sc["deck"].get("config") or {}
+        rt = d["slot"].get("recording_time")
+        bps = _deck.bitrate(cfg.get("file format"), d["slot"].get("video_format"),
+                            p.get("audio_channels") or 2)
+        d["record_format"] = cfg.get("file format")
+        if rt is not None and bps:
+            d["free_est"] = int(rt * bps)
+            if d.get("bytes") is not None:
+                d["total_est"] = d["free_est"] + d["bytes"]
     return out
 
 
@@ -609,6 +622,8 @@ class Handler(BaseHTTPRequestHandler):
                 engine._close(ftp)
         except Exception as e:
             out["ftp"] = {"ok": False, "error": str(e)}
+        if out["ftp"].get("ok"):
+            out["rename"] = self._test_rename(p)
         try:
             st = deck.read(p["host"], p.get("tcp_port") or deck.PORT)
             out["deck"] = {"ok": True, "model": st.get("model"), "clips": st.get("clips_count"),
@@ -616,6 +631,37 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             out["deck"] = {"ok": False, "error": str(e)}
         return self._send(200, out)
+
+    @staticmethod
+    def _test_rename(p):
+        """Renommage d'essai sur un petit fichier TEXTE (le HyperDeck ne liste que les clips :
+        la timeline n'est pas touchée). Rend le journal brut de l'échange FTP : c'est lui qui
+        dit si la machine répond dans l'ordre."""
+        import io
+        a, b = store.TEMP_PREFIX + "test_renommage.txt", store.TEMP_PREFIX + "test_renommage_ok.txt"
+        res = {"ok": False}
+        ftp = None
+        try:
+            ftp = engine.ftp_open(p)
+            ftp.storbinary("STOR " + a, io.BytesIO(b"test Bobi.Tools\n"))
+            engine.ftp_rename(ftp, a, b)
+            names = engine.ftp_names(ftp)
+            res["ok"] = b in names and a not in names
+            if not res["ok"]:
+                res["error"] = "renommage annoncé réussi mais non constaté sur le disque"
+        except Exception as e:
+            res["error"] = str(e)
+        finally:
+            if ftp is not None:
+                for n in (a, b):
+                    try:
+                        ftp.sendcmd("DELE " + n)
+                    except Exception:
+                        pass
+                res["journal"] = list(ftp.journal)
+                res["stray"] = len(ftp.stray)
+                engine._close(ftp)
+        return res
 
 
 def main():

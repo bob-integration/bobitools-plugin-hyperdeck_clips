@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.7.0",
+   "date": "2026-11-15",
+   "notes": "DÉPLACER UN CLIP ÉCHOUAIT sur HyperDeck réel (« 350 Requested file action pending further information »). Les réponses FTP du HyperDeck arrivent décalées d'un cran : 200 au RNFR, puis 350 (la réponse du RNFR) au RNTO. Les livraisons y échappaient sans bruit par leur repli (renvoi complet du fichier), le déplacement n'en a pas. Le client FTP se recale désormais avant chaque commande (réponses en trop lues et écartées, notées au journal) et le renommage reconnaît un 350 tardif. Un refus est suivi d'une RELECTURE DU DISQUE : un renommage fait malgré une réponse trompeuse n'est plus défait à tort ni renvoyé. Le journal brut de l'échange FTP accompagne chaque refus. « Tester la connexion » fait un renommage d'essai (petit fichier texte, timeline non touchée). ESPACE DU HYPERDECK : libre et capacité estimés (≈) à partir du temps d'enregistrement restant et du débit du format d'enregistrement, avec jauge ; taille des clips lue par LIST quand le HyperDeck n'a pas MLSD. Banc : décalage reproduit, déplacement et renommage d'essai réussis."
+  },
+  {
    "version": "0.6.3",
    "date": "2026-11-15",
    "notes": "UN CLIP LIVRÉ APPARAÎT DÈS LA FIN DU TRANSFERT, sans cliquer « Vérifier ». Depuis la 0.6.1 la page ralentissait son rafraîchissement (8 s) dès que plus rien ne tournait, et le serveur n'actualisait l'état qu'à sa première revérification : pendant 8 à 10 s la barre de transfert disparaissait alors que la case montrait encore l'ancien bouche-trou. Le relevé du disque fait par le transfert lui-même est désormais appliqué immédiatement (la case passe à « Livré » ; si le HyperDeck n'a pas encore relu son disque, le rang l'indique honnêtement : « ⟳ liste l'ancien ») ; la page reste en rafraîchissement rapide (1,5 s) pendant la minute qui suit un transfert et tant que le HyperDeck relit son disque ; revérifications resserrées (2, 5, 8, 12, 17, 25, 35, 50 s), fenêtre avant le rouge inchangée (90 s)."

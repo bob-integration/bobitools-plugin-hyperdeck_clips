@@ -21,11 +21,14 @@ décale tous ceux qui suivent.
 Un seul transfert à la fois PAR HYPERDECK (une file et un fil par lecteur) : deux envois
 sur la même machine se partageraient son lien et son disque sans rien gagner.
 """
+import collections
 import ftplib
 import os
 import queue
+import re
 import shutil
 import secrets
+import select
 import threading
 import time
 import traceback
@@ -52,10 +55,80 @@ _glock = threading.RLock()
 
 # ── FTP ─────────────────────────────────────────────────────────────────────
 
+class HDFtp(ftplib.FTP):
+    """Client FTP qui SE RECALE sur les réponses du HyperDeck et garde un JOURNAL brut.
+
+    Relevé le 2026-11-15 sur machine réelle : un renommage reçoit « 200 » au RNFR puis
+    « 350 Requested file action pending » au RNTO. 350 est la réponse NORMALE au RNFR :
+    les réponses arrivent décalées d'un cran (une réponse en trop, venue plus tôt dans la
+    session, est lue à la place de la bonne). ftplib lit une réponse par commande et ne
+    s'en remet jamais. Ici, avant chaque commande, toute réponse déjà arrivée et non
+    réclamée est lue, notée au journal comme « en trop » et écartée.
+    Le journal (commandes envoyées, réponses lues, mot de passe masqué) accompagne les
+    erreurs : il dit ce que la machine a réellement répondu."""
+
+    DRAIN_WAIT = 0.08      # s : délai laissé à une réponse en trop pour arriver
+
+    def __init__(self, *a, **kw):
+        self._rbuf = b""
+        self.journal = collections.deque(maxlen=60)
+        self.stray = []
+        super().__init__(*a, **kw)
+
+    def getline(self):
+        while b"\n" not in self._rbuf:
+            if len(self._rbuf) > self.maxline:
+                raise ftplib.Error("réponse FTP trop longue")
+            chunk = self.sock.recv(8192)
+            if not chunk:
+                raise EOFError
+            self._rbuf += chunk
+        raw, _, self._rbuf = self._rbuf.partition(b"\n")
+        line = raw.decode(self.encoding or "utf-8", "replace").rstrip("\r")
+        self.journal.append("< " + line)
+        return line
+
+    def _pending(self, wait):
+        if b"\n" in self._rbuf:
+            return True
+        if self.sock is None:
+            return False
+        try:
+            return bool(select.select([self.sock], [], [], wait)[0])
+        except (OSError, ValueError):
+            return False
+
+    def drain(self, wait=None):
+        """Lit et écarte les réponses arrivées sans avoir été demandées. Renvoie leur liste."""
+        got = []
+        wait = self.DRAIN_WAIT if wait is None else wait
+        while self._pending(wait):
+            try:
+                resp = self.getmultiline()
+            except (OSError, EOFError):
+                break
+            got.append(resp)
+            self.journal.append("  (réponse en trop : ignorée)")
+            wait = self.DRAIN_WAIT
+        self.stray.extend(got)
+        return got
+
+    def putcmd(self, line):
+        if self.sock is not None:
+            self.drain()
+        self.journal.append("> " + ("PASS ****" if line[:5].upper() == "PASS " else line))
+        super().putcmd(line)
+
+
+def ftp_journal(ftp, n=16):
+    """Dernières lignes échangées avec le HyperDeck (pour le journal d'une opération)."""
+    return list(getattr(ftp, "journal", []))[-n:]
+
+
 def ftp_open(p, cwd=True):
     if not p.get("host"):
         raise RuntimeError("adresse du HyperDeck non renseignée")
-    ftp = ftplib.FTP(timeout=FTP_TIMEOUT, encoding="utf-8")
+    ftp = HDFtp(timeout=FTP_TIMEOUT, encoding="utf-8")
     try:
         ftp.connect(p["host"], int(p.get("ftp_port") or 21))
         ftp.login(p.get("ftp_user") or "anonymous", p.get("ftp_password") or "")
@@ -99,7 +172,29 @@ def ftp_names(ftp, sizes=None):
             n = n.rsplit("/", 1)[-1]
             if n not in (".", ".."):
                 out.append(n)
+        if sizes is not None:
+            _list_sizes(ftp, out, sizes)
         return sorted(out)
+
+
+_LIST_UNIX = re.compile(r"^[-dl][rwxsStT-]{9}\S*\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\w{3}\s+\d{1,2}\s+[\d:]{4,5}\s(.+)$")
+_LIST_DOS = re.compile(r"^\d{2}-\d{2}-\d{2,4}\s+\d{1,2}:\d{2}[AP]M\s+(\d+)\s+(.+)$", re.IGNORECASE)
+
+
+def _list_sizes(ftp, names, sizes):
+    """Tailles des fichiers par LIST (format « ls -l » ou DOS), pour un serveur sans MLSD
+    (le HyperDeck). Les NOMS restent ceux de NLST : LIST ne sert qu'à lire les tailles, et
+    une ligne qu'on ne sait pas lire est ignorée plutôt que devinée."""
+    wanted = set(names)
+    lines = []
+    try:
+        ftp.retrlines("LIST", lines.append)
+    except ftplib.all_errors:
+        return
+    for l in lines:
+        m = _LIST_UNIX.match(l) or _LIST_DOS.match(l)
+        if m and m.group(2) in wanted:
+            sizes[m.group(2)] = int(m.group(1))
 
 
 class FtpStepError(ftplib.error_perm):
@@ -124,7 +219,7 @@ def _ftp_step(ftp, cmd, name, fn):
             time.sleep(delay)
         try:
             return fn()
-        except (ftplib.error_perm, ftplib.error_temp) as e:
+        except (ftplib.error_perm, ftplib.error_temp, ftplib.error_reply) as e:
             last = str(e).strip()
             try:
                 present = name in ftp_names(ftp)
@@ -142,13 +237,25 @@ def _ftp_step(ftp, cmd, name, fn):
 
 
 def ftp_rename(ftp, src, dst):
-    """RNFR/RNTO tolérant. `ftplib.rename` exige « 350 » au RNFR (RFC 959) ; le HyperDeck
-    répond « 200 Command successful » — relevé le 2026-11-15 sur machine réelle — et
-    ftplib abandonnait, laissant la machine en attente du RNTO. Tout code 2xx/3xx est
-    donc accepté au RNFR ; le RNTO doit répondre 2xx."""
+    """RNFR/RNTO qui supporte des réponses DÉCALÉES d'un cran (cf. HDFtp), relevées sur
+    HyperDeck : « 200 » au RNFR puis « 350 » au RNTO.
+      - RNFR qui ne répond pas 350 : sa vraie réponse suit peut-être → on la laisse
+        arriver (1 s) et on l'écarte avant d'envoyer le RNTO ;
+      - RNTO qui répond 350 : c'était la réponse du RNFR → on lit la suivante, qui est
+        la vraie réponse au RNTO. Elle doit être 2xx.
+    La preuve finale reste la relecture du dossier, faite par l'appelant."""
     def go():
-        ftp.sendcmd("RNFR " + src)      # lève error_temp/error_perm sur 4xx/5xx
-        return ftp.voidcmd("RNTO " + dst)
+        r1 = ftp.sendcmd("RNFR " + src)      # lève error_temp/error_perm sur 4xx/5xx
+        if not r1.startswith("350") and hasattr(ftp, "drain"):
+            ftp.drain(1.0)
+        r2 = ftp.sendcmd("RNTO " + dst)
+        if r2.startswith("350"):
+            ftp.journal.append("  (350 au RNTO = réponse du RNFR, arrivée en retard)") \
+                if hasattr(ftp, "journal") else None
+            r2 = ftp.getresp()
+        if not r2.startswith("2"):
+            raise ftplib.error_reply(r2)
+        return r2
     return _ftp_step(ftp, "Renommage", src, go)
 
 
@@ -517,7 +624,8 @@ def _swap(j, p):
                 ftp_rename(ftp, temp, final)
                 renamed = True
             except ftplib.all_errors as e:
-                _log(j, "renommage refusé (%s) : envoi direct sous le nom définitif" % e)
+                _log(j, "renommage refusé (%s). Échange FTP :\n  %s"
+                     % (e, "\n  ".join(ftp_journal(ftp))))
         finally:
             _close(ftp)
         # Session NEUVE pour la suite : un serveur laissé en attente du RNTO répond « 503
@@ -525,6 +633,13 @@ def _swap(j, p):
         ftp = ftp_open(p)
         try:
             if not renamed:
+                cur = set(ftp_names(ftp))
+                if final in cur and temp not in cur:
+                    # Réponse trompeuse : le renommage a bien eu lieu, rien à renvoyer.
+                    _log(j, "le HyperDeck a bien renommé malgré sa réponse")
+                    renamed = True
+            if not renamed:
+                _log(j, "envoi direct sous le nom définitif")
                 j["sent"] = 0
                 with open(local, "rb") as fh:
                     ftp.storbinary("STOR " + final, fh, blocksize=1 << 20,
@@ -642,40 +757,33 @@ def _move(j, p):
         raise
 
     done = []                      # renommages faits, pour revenir en arrière
+    cur = [None]                   # renommage en cours au moment d'une erreur
+
+    def ren(src, dst):
+        cur[0] = (src, dst)
+        ftp_rename(ftp, src, dst)
+        done.append((src, dst))
+        cur[0] = None
+
     ftp = ftp_open(p)
     try:
-        try:
-            _log(j, "%s : %s (%s) → %s" % ("échange" if mode == "swap" else "déplacement", a, x, b))
-            ftp_rename(ftp, x, park)
-            done.append((x, park))
-            if mode == "swap":
-                ftp_rename(ftp, rec_b["remote"], new_a)
-                done.append((rec_b["remote"], new_a))
-                ftp_rename(ftp, park, new_b)
-                done.append((park, new_b))
-            else:
-                for o in olds_b:
-                    ftp_delete(ftp, o)
-                ftp_rename(ftp, park, new_b)
-                done.append((park, new_b))
-                ftp_rename(ftp, temp_ph, new_a)
-                done.append((temp_ph, new_a))
-        except ftplib.all_errors as e:
-            _log(j, "refus du HyperDeck (%s) : retour en arrière" % e)
-            for src, dst in reversed(done):
-                try:
-                    ftp_rename(ftp, dst, src)
-                except ftplib.all_errors as e2:
-                    _log(j, "retour en arrière impossible pour %s (%s)" % (dst, e2))
-            if temp_ph and (temp_ph, new_a) not in done:
-                try:
-                    ftp_delete(ftp, temp_ph)
-                except ftplib.all_errors:
-                    pass
-            raise RuntimeError("déplacement annulé : %s" % e)
+        _log(j, "%s : %s (%s) → %s" % ("échange" if mode == "swap" else "déplacement", a, x, b))
+        ren(x, park)
+        if mode == "swap":
+            ren(rec_b["remote"], new_a)
+            ren(park, new_b)
+        else:
+            for o in olds_b:
+                ftp_delete(ftp, o)
+            ren(park, new_b)
+            ren(temp_ph, new_a)
         names = ftp_names(ftp)
-    finally:
         _close(ftp)
+    except ftplib.all_errors as e:
+        _log(j, "refus du HyperDeck (%s). Échange FTP :\n  %s" % (e, "\n  ".join(ftp_journal(ftp))))
+        _close(ftp)
+        _rollback_move(j, p, done, cur[0], temp_ph, new_a)
+        raise RuntimeError("déplacement annulé (tout est revenu en place) : %s" % e)
     _fresh_listing(p["id"], names)
     for n, want in ((a, new_a), (b, new_b)):
         mine = [f for f in names if store.num_of(f) == n and store.is_media(f)]
@@ -701,6 +809,36 @@ def _move(j, p):
             pl["files"][a] = {"kind": "placeholder", "remote": new_a, "at": now, "by": j["by"],
                               "size": j.get("size"), "label": j.get("label"), "key": j.get("key")}
     store.mutate(p["id"], fn)
+
+
+def _rollback_move(j, p, done, pending, temp_ph, new_a):
+    """Remet les fichiers en place après un déplacement refusé. Sur une session NEUVE (la
+    précédente peut être désynchronisée), et d'après le DISQUE : une réponse décalée peut
+    annoncer un échec alors que le renommage a bien eu lieu."""
+    try:
+        ftp = ftp_open(p)
+    except Exception as e:
+        _log(j, "retour en arrière impossible : %s" % e)
+        return
+    try:
+        names = set(ftp_names(ftp))
+        if pending and pending[0] not in names and pending[1] in names:
+            _log(j, "le HyperDeck a bien renommé %s → %s malgré sa réponse" % pending)
+            done = done + [pending]
+        for src, dst in reversed(done):
+            try:
+                ftp_rename(ftp, dst, src)
+            except ftplib.all_errors as e2:
+                _log(j, "retour en arrière impossible pour %s (%s)" % (dst, e2))
+        if temp_ph and (temp_ph, new_a) not in done:
+            try:
+                ftp_delete(ftp, temp_ph)
+            except ftplib.all_errors:
+                pass
+    except ftplib.all_errors as e:
+        _log(j, "retour en arrière interrompu : %s" % e)
+    finally:
+        _close(ftp)
 
 
 def _rename_placeholder(j, p):
@@ -733,7 +871,16 @@ def _rename_placeholder(j, p):
     _log(j, "renommage : %s → %s" % (old, new))
     ftp = ftp_open(p)
     try:
-        ftp_rename(ftp, old, new)
+        try:
+            ftp_rename(ftp, old, new)
+        except ftplib.all_errors as e:
+            _log(j, "refus (%s). Échange FTP :\n  %s" % (e, "\n  ".join(ftp_journal(ftp))))
+            _close(ftp)
+            ftp = ftp_open(p)           # session neuve : l'ancienne peut être désynchronisée
+            names = ftp_names(ftp)
+            if new not in names or old in names:
+                raise
+            _log(j, "le HyperDeck a bien renommé malgré sa réponse")
         names = ftp_names(ftp)
     finally:
         _close(ftp)
@@ -841,7 +988,9 @@ def scan(pid):
     if busy(pid) and pid in _listing:
         # Un transfert occupe la machine : on ne lui ouvre pas une seconde session FTP,
         # on reprend le dernier listing connu (signalé comme tel).
-        res["ftp"] = {"ok": True, "files": _listing[pid][1], "cached": True}
+        prev = (_scans.get(pid) or {}).get("ftp") or {}
+        res["ftp"] = {"ok": True, "files": _listing[pid][1], "cached": True,
+                      "sizes": prev.get("sizes") or {}}
     else:
         try:
             ftp = ftp_open(p)

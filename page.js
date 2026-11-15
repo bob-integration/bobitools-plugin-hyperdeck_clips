@@ -229,14 +229,28 @@ window.BTTools.hyperdeck_clips = (function () {
                 + (sv.cache ? ' · cache bouche-trous ' + fmtSize(sv.cache) + (canManage ? ' <button class="btn" type="button" data-clear-cache>vider</button>' : "") : "") + "</span>");
         }
         if (dk) {
-            const bits = [];
-            if (dk.files != null) bits.push(dk.files + " clips" + (dk.bytes != null ? ", " + (dk.complete ? "" : "≥ ") + fmtSize(dk.bytes) : ""));
+            // Le protocole ne donne que le TEMPS d'enregistrement restant : l'espace libre en
+            // est déduit au débit du format d'enregistrement (≈), la capacité = libre + clips.
+            const bits = [], tips = ["Le HyperDeck annonce son temps d'enregistrement restant, pas ses octets libres."];
+            let head;
+            if (dk.free_est != null) {
+                head = "≈ " + fmtSize(dk.free_est) + " libres" + (dk.total_est ? " sur ≈ " + fmtSize(dk.total_est) : "");
+                tips.push("Espace libre estimé : temps restant × débit du format d'enregistrement (" + (dk.record_format || "?") + ").");
+                if (dk.total_est) tips.push("Capacité = libre estimé + taille des clips présents.");
+            } else if (dk.slot && dk.slot.recording_time != null) {
+                tips.push("Espace en octets non estimable pour le format d'enregistrement « " + (dk.record_format || "inconnu") + " » (débit variable ou inconnu).");
+            }
+            if (dk.files != null) bits.push(dk.files + (dk.files > 1 ? " clips" : " clip") + (dk.bytes != null ? " (" + (dk.complete ? "" : "≥ ") + fmtSize(dk.bytes) + ")" : ""));
             if (dk.slot) {
                 if (dk.slot.volume) bits.push("volume « " + esc(dk.slot.volume) + " »");
                 if (dk.slot.recording_time != null) bits.push("reste ≈ " + fmtHours(dk.slot.recording_time) + " d'enregistrement");
             }
-            parts.push('<span class="hc-store" title="Le protocole du HyperDeck donne le temps d\'enregistrement restant (dans le format d\'enregistrement courant), pas les octets libres.">HyperDeck : <strong>'
-                + (bits[0] || "?") + "</strong>" + bits.slice(1).map((b) => " · " + b).join("") + "</span>");
+            const ratio = dk.total_est ? (dk.total_est - dk.free_est) / dk.total_est : null;
+            const cls = dk.free_est != null && dk.free_est < 5 * 1024 ** 3 ? "bad" : dk.free_est != null && dk.free_est < 20 * 1024 ** 3 ? "warn" : "";
+            if (!head) head = bits.shift() || "?";
+            parts.push('<span class="hc-store ' + cls + '" title="' + esc(tips.join(" ")) + '">HyperDeck : <strong>' + head + "</strong>"
+                + (ratio != null ? ' <span class="hc-bar-p ' + cls + '"><i style="--p:' + ratio.toFixed(3) + '"></i></span>' : "")
+                + bits.map((b) => " · " + b).join("") + "</span>");
         }
         $("#hc-storage").innerHTML = parts.join("");
     }
@@ -928,6 +942,9 @@ window.BTTools.hyperdeck_clips = (function () {
             const r = await ctx.api("players/" + pid + "/test", { method: "POST", body: {} });
             out.innerHTML = (r.ftp.ok ? '<span class="hc-badge ok">FTP OK</span> ' + esc(r.ftp.cwd) + " · " + r.ftp.files + " fichier(s)"
                 : '<span class="hc-badge bad">FTP</span> ' + esc(r.ftp.error)) + "<br>"
+                + (r.rename ? (r.rename.ok ? '<span class="hc-badge ok">Renommage OK</span>' : '<span class="hc-badge bad">Renommage</span> ' + esc(r.rename.error || ""))
+                    + (r.rename.stray ? ' <span class="hc-badge warn">' + r.rename.stray + " réponse(s) FTP en trop, rattrapée(s)</span>" : "")
+                    + (r.rename.journal && r.rename.journal.length ? '<details><summary>Échange FTP brut</summary><pre class="hc-mono">' + esc(r.rename.journal.join("\n")) + "</pre></details>" : "") + "<br>" : "")
                 + (r.deck.ok ? '<span class="hc-badge ok">Protocole OK</span> ' + esc(r.deck.model || "") + " · " + esc(r.deck.clips) + " clip(s) dans la timeline"
                 : '<span class="hc-badge bad">Protocole</span> ' + esc(r.deck.error));
         } catch (e) { out.textContent = e.message; }

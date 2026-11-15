@@ -132,6 +132,11 @@ def read(host, port=PORT, timeout=5):
                 out["slot"] = {"id": sid, "volume": si.get("volume name"), "status": si.get("status"),
                                "recording_time": int(si["recording time"]) if str(si.get("recording time", "")).isdigit() else None,
                                "video_format": si.get("video format")}
+        # Format d'enregistrement (« file format: QuickTimeProResHQ ») : sert à convertir le
+        # temps restant en octets (estimation), le protocole ne donnant pas d'octets libres.
+        code, text, lines = c.command("configuration", timeout)
+        if 200 <= code < 300:
+            out["config"] = _params(lines)
         code, text, lines = c.command("clips count", timeout)
         p = _params(lines)
         out["clips_count"] = int(p["clip count"]) if code < 300 and p.get("clip count", "").isdigit() else None
@@ -170,3 +175,26 @@ def strip_ext(name):
     n = str(name or "")
     base, dot, ext = n.rpartition(".")
     return base if dot and 1 <= len(ext) <= 4 and base else n
+
+
+# Débits ProRes d'Apple (Mb/s) en 1920×1080 à 25 images/s (1080i50 / 1080p25), audio en sus.
+_RATES = (("proreshq", 184), ("prores4444xq", 415), ("prores4444", 275), ("proreslt", 85),
+          ("proresproxy", 38), ("prores", 122), ("dnxhd220", 185), ("dnxhd145", 121),
+          ("dnxhd45", 36), ("dnxhrhqx", 185), ("dnxhrhq", 185), ("dnxhrsq", 122), ("dnxhrlb", 38))
+_VF = re.compile(r"^(\d{3,4})(i|p|psf)(\d+(?:\.\d+)?)$", re.IGNORECASE)
+_WIDTH = {"720": 1280, "1080": 1920, "2160": 3840, "4320": 7680, "486": 720, "576": 720}
+
+
+def bitrate(file_format, video_format, audio_channels=2):
+    """Débit (octets/s) estimé d'un enregistrement, ou None si le codec n'est pas connu
+    (H.264/H.265 : débit variable, pas d'estimation honnête possible)."""
+    ff = re.sub(r"[^a-z0-9]", "", str(file_format or "").lower()).replace("quicktime", "")
+    mbps = next((r for k, r in _RATES if ff.startswith(k)), None)
+    m = _VF.match(str(video_format or "").strip())
+    if mbps is None or not m or m.group(1) not in _WIDTH:
+        return None
+    h, kind, rate = int(m.group(1)), m.group(2).lower(), float(m.group(3))
+    fps = rate / 2 if kind == "i" else rate
+    pixels = _WIDTH[m.group(1)] * h / (1920 * 1080)
+    video = mbps * pixels * fps / 25 * 1e6 / 8
+    return video + max(0, audio_channels) * 48000 * 3      # PCM 24 bits 48 kHz

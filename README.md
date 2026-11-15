@@ -17,8 +17,22 @@ liste doit donc toujours compter le même nombre de clips, dans le même ordre.
 3. `DELE` de l'ancien puis `RNFR/RNTO` du temporaire ; repli par `STOR` direct si le
    renommage est refusé.
 
+## Réponses FTP décalées
+Sur HyperDeck réel, un renommage a reçu « 200 » au `RNFR` puis « 350 » au `RNTO` : les
+réponses arrivent décalées d'un cran (350 est la réponse normale au RNFR). Le client FTP
+de l'outil lit et écarte, avant chaque commande, toute réponse déjà arrivée sans avoir été
+demandée, et le renommage reconnaît un 350 tardif. Le journal brut de l'échange accompagne
+chaque refus ; « Tester la connexion » fait un renommage d'essai sur un petit fichier
+texte (invisible dans la timeline) et montre cet échange.
+
+## Espace du HyperDeck
+Le protocole ne donne que le temps d'enregistrement restant. L'espace libre en est
+déduit au débit du format d'enregistrement (`configuration` → `file format`, débits ProRes
+et DNx publiés), d'où le « ≈ » ; capacité = libre estimé + taille des clips (LIST quand
+le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.264/H.265).
+
 ## À vérifier sur une vraie machine
-- Renommage FTP (`RNFR/RNTO`) accepté par le HyperDeck.
+- Renommage FTP (`RNFR/RNTO`) : hypothèse du décalage à confirmer avec « Tester la connexion ».
 - Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
 - Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
 - Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).
