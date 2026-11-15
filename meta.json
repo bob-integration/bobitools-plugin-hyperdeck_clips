@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.1",
+   "date": "2026-11-15",
+   "notes": "BOUCHE-TROUS ANIMÉS : la roue (un cran par seconde, quasi immobile sur un clip de 2 s) est remplacée par TROIS POINTS dont l'allumé fait l'aller-retour, 5 pas par seconde (aller-retour complet en 0,8 s). Le compteur des secondes reste. Toujours rapide : 5 images encodées par seconde de clip (0,95 s pour un bouche-trou de 2 s, 0,65 s en fixe). Les bouche-trous animés faits en 0.9.0 passent « à refaire »."
+  },
+  {
    "version": "0.9.0",
    "date": "2026-11-15",
    "notes": "BOUCHE-TROUS ANIMÉS ET TRANSPARENTS (Réglages → Bouche-trous → Mouvement et transparence). ANIMÉ : une roue qui avance d'un cran par seconde et un compteur des secondes, pour voir que le HyperDeck lit le clip. Fabrication quasi aussi rapide qu'un bouche-trou fixe (1,2 s au lieu de 0,7 s pour 10 s en 1080i50) : une seule image encodée par seconde, répétée par copie. TRANSPARENT (ProRes 4444, sortie fill & key) : le fond devient un cartouche autour des infos, le reste de l'image est transparent ; le cadre est mesuré sur le texte réel ; les textes sont opaques dans la découpe (le programme ne passe pas à travers les lettres). Aperçu sur damier. L'option est gardée mais sans effet hors ProRes 4444, et l'écran le dit. Poids en 4444 : ≈ 145 Mo pour 10 s. Les bouche-trous déjà posés ne deviennent pas périmés à la mise à jour ; cocher une option les fait refaire (« Combler les vides »)."
@@ -81,5 +86,5 @@
    "notes": "Première version. Plusieurs lecteurs, chacun avec SON HyperDeck et SA liste (CSV déposé ; un CSV à plusieurs Players fait choisir le sien). Emplacements groupés par catégorie : numéro, nom, fichier en place, version, état, rang relu sur la machine. Dépôt par glisser-déposer (un emplacement, ou plusieurs fichiers « 104 - … » d'un coup) ; pré-contrôle du format sur l'en-tête lu dans le navigateur, puis ffprobe du fichier complet ; nom sur la machine « <Numéro> - <nom d'origine> ». Remplacement V2… sans décaler la liste (nom temporaire zzz_envoi_ en fin de liste, attente si le clip est à l'antenne, suppression puis renommage ; repli par envoi direct si le renommage FTP est refusé). Bouche-trous au format exact (une image ProRes encodée puis répétée : 0,5 s pour 10 s). Vérification TCP 9993 (clips count / clips get) : nombre, rang de chaque emplacement, fichiers étrangers, doublons, temporaires oubliés. Correction proposée de l'en-tête de trame des .mov sortis de ffmpeg (tb/bb → tt, sans réencodage). Un transfert FTP à la fois par HyperDeck, clips livrés avant bouche-trous. Testé sur banc (FTP pyftpdlib + simulateur 9993), JAMAIS sur un vrai HyperDeck."
   }
  ],
- "version": "0.9.0"
+ "version": "0.9.1"
 }

@@ -27,11 +27,13 @@ l'emplacement peut porter deux fichiers (contrepartie inévitable sans renommage
 « Tester la connexion » refait l'essai et montre l'échange brut.
 
 ## Bouche-trous animés et transparents (0.9.0)
-- **Animé** : une roue (un point avance d'un cran par seconde) et un compteur des secondes,
-  pour voir que le HyperDeck lit. Tout change une fois par seconde : on n'encode qu'une
-  image par seconde (segment muxer, 1 image par fichier) et la liste de concaténation la
-  répète autant de fois qu'elle a d'images (cadences fractionnaires comprises), par copie
-  de flux. Coût mesuré : 1,2 s au lieu de 0,7 s pour 10 s en 1080i50.
+- **Animé** : trois points dont l'allumé fait l'aller-retour (gauche, milieu, droite,
+  milieu…) et un compteur des secondes, pour voir que le HyperDeck lit. Tout change
+  `ANIM_STEPS` = 5 fois par seconde (aller-retour en 0,8 s : visible sur un clip de 2 s) :
+  on n'encode que ces images (segment muxer, 1 image par fichier) et la liste de
+  concaténation répète chacune autant de fois qu'il faut (cadences fractionnaires
+  comprises), par copie de flux. Coût mesuré en 1080i50 : 0,95 s pour 2 s (fixe : 0,65 s),
+  2,2 s pour 10 s. La roue de 0.9.0 (1 cran/s) était invisible sur des clips de 2 s.
 - **Transparent** (ProRes 4444 seulement, sortie fill & key) : fond transparent, cartouche
   de la couleur de fond autour des infos. Le cadre est MESURÉ par ffmpeg (filtre `bbox` sur
   un rendu blanc sur noir, compteur « 88 »), plus une marge. `drawbox` exige `replace=1`
@@ -51,7 +53,7 @@ le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.2
 - Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
 - Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
 - Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).
-- Lecture d'un bouche-trou animé (roue régulière, compteur) et découpe d'un bouche-trou
+- Lecture d'un bouche-trou animé (points réguliers, compteur) et découpe d'un bouche-trou
   ProRes 4444 transparent en sortie fill & key.
 
 ## Dépendance cœur

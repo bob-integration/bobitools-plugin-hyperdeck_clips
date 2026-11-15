@@ -175,9 +175,9 @@ def fix_field_order(src, dst, order="tt", timeout=1800):
 
 # Apparence des bouche-trous, réglable par lecteur. Défaut = le visuel d'origine : fond
 # noir, infos en gris, discret s'il part à l'antenne par erreur.
-#   anim        : une roue (un point qui avance d'un cran par seconde) et un compteur des
-#                 secondes, pour voir que le HyperDeck LIT. Tout change une fois par seconde :
-#                 on n'encode qu'UNE image par seconde, répétée par copie de flux (coût ≈ fixe).
+#   anim        : trois points dont l'allumé fait l'aller-retour, et un compteur des secondes,
+#                 pour voir que le HyperDeck LIT. Tout change ANIM_STEPS fois par seconde :
+#                 on n'encode que ces images-là, répétées par copie de flux (coût ≈ fixe).
 #   transparent : ProRes 4444 seulement (fill & key) : le fond devient un cartouche autour
 #                 des infos, le reste de l'image est transparent.
 DEFAULT_STYLE = {
@@ -187,6 +187,7 @@ DEFAULT_STYLE = {
 }
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 _NEW_KEYS = ("anim", "transparent")   # absents des empreintes tant qu'ils sont éteints
+ANIM_STEPS = 5   # images différentes par seconde en mode animé (aller-retour en 0,8 s)
 
 
 def norm_style(style):
@@ -213,6 +214,8 @@ def placeholder_key(slot, fmt, duration, audio_channels, player_name, style=None
         for k in _NEW_KEYS:
             if not part[k]:
                 del part[k]
+        if part.get("anim"):
+            part["anim"] = "points"   # 0.9.1 : la roue de 0.9.0 devient trois points → à refaire
         parts.append(part)
     raw = json.dumps(parts, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
@@ -230,8 +233,8 @@ def _mix(fg, bg, a):
 
 
 def _layout(slot, player_name, st, w, h, tmp, fg=None, counter=None, opaque_on=None):
-    """Calques empilés et centrés verticalement : infos choisies, puis (anim) roue + compteur.
-    Rend (filtres de la chaîne principale, position du point de la roue ou None).
+    """Calques empilés et centrés verticalement : infos choisies, puis (anim) points + compteur.
+    Rend (filtres de la chaîne principale, position du point allumé ou None).
     `opaque_on` (mode transparent) : les gris semi-transparents sont pré-mélangés à ce fond,
     sinon ils perceraient la découpe (le programme passerait à travers les lettres)."""
     sh, k = st["show"], h / 1080.0
@@ -247,7 +250,7 @@ def _layout(slot, player_name, st, w, h, tmp, fg=None, counter=None, opaque_on=N
              (st["mention"], FONT, 44, 0.7) if sh["mention"] and st["mention"].strip() else None]
     lines = [l for l in lines if l and l[0].strip()]
     heights = [size * 1.55 for _, _, size, _ in lines]
-    wheel_h, cnt_h = 190, 80
+    wheel_h, cnt_h = 90, 80
     total = sum(heights) + (wheel_h + cnt_h if st["anim"] else 0)
     y = -total / 2
     out = []
@@ -262,30 +265,30 @@ def _layout(slot, player_name, st, w, h, tmp, fg=None, counter=None, opaque_on=N
                                                        int(center * k)))
     dot = None
     if st["anim"]:
-        import math
-        cx, cy, r, d = w / 2, h / 2 + (y + wheel_h / 2) * k, 62 * k, max(4, int(14 * k))
-        for i in range(12):
-            a = 2 * math.pi * i / 12 - math.pi / 2
+        # Trois points ; l'allumé fait l'aller-retour gauche → milieu → droite → milieu
+        # (un cran par image encodée, ANIM_STEPS par seconde : visible même sur 2 s).
+        cx, cy, g, d = w / 2, h / 2 + (y + wheel_h / 2) * k, 60 * k, max(4, int(22 * k))
+        for i in (-1, 0, 1):
             out.append("drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill"
-                       % (cx + r * math.cos(a) - d / 2, cy + r * math.sin(a) - d / 2, d, d, col(0.35)))
-        # Compteur : une image par seconde → l'indice d'image n EST la seconde.
-        txt = counter if counter is not None else r"%{eif\:n\:d\:2}"
+                       % (cx + i * g - d / 2, cy - d / 2, d, d, col(0.35)))
+        # Compteur des secondes : ANIM_STEPS images encodées par seconde.
+        txt = counter if counter is not None else r"%{eif\:floor(n/" + str(ANIM_STEPS) + r")\:d\:2}"
         out.append("drawtext=fontfile=%s:fontsize=%d:fontcolor=%s:x=(w-text_w)/2:"
                    "y=h/2-text_h/2+%d:text='%s'" % (FONT_BOLD, max(10, int(56 * k)), col(0.9),
                                                     int((y + wheel_h + cnt_h / 2) * k), txt))
-        dd = max(6, int(24 * k))
-        dot = {"cx": cx, "cy": cy, "r": r, "d": dd}
+        dd = max(6, int(30 * k))
+        dot = {"cx": cx, "cy": cy, "g": g, "d": dd}
     return out, dot
 
 
 def _bbox(slot, player_name, st, w, h, tmp, timeout):
-    """Cadre exact des infos (textes, roue, compteur au plus large) : mesuré par ffmpeg
+    """Cadre exact des infos (textes, points, compteur au plus large) : mesuré par ffmpeg
     lui-même (filtre bbox) sur un rendu blanc sur noir — aucune estimation de police."""
     filters, dot = _layout(slot, player_name, st, w, h, tmp, fg="#FFFFFF", counter="88")
-    if dot:   # la roue entière, point compris
+    if dot:   # les trois positions du point allumé
         filters.append("drawbox=x=%d:y=%d:w=%d:h=%d:color=white:t=fill"
-                       % (dot["cx"] - dot["r"] - dot["d"], dot["cy"] - dot["r"] - dot["d"],
-                          2 * (dot["r"] + dot["d"]), 2 * (dot["r"] + dot["d"])))
+                       % (dot["cx"] - dot["g"] - dot["d"] / 2, dot["cy"] - dot["d"] / 2,
+                          2 * dot["g"] + dot["d"], dot["d"]))
     if not filters:
         return None
     p = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info", "-f", "lavfi",
@@ -318,8 +321,9 @@ def _graph(slot, player_name, st, fmt, w, h, tmp, rate, timeout):
     graph = "[0]" + (",".join(filters) if filters else "null")
     if dot:
         inputs.append("color=c=%s:s=%dx%d:r=%s" % (st["fg"].replace("#", "0x"), dot["d"], dot["d"], rate))
-        graph += "[b];[b][1]overlay=eval=frame:x=%.1f+%.1f*cos(2*PI*n/12-PI/2)-%d:y=%.1f+%.1f*sin(2*PI*n/12-PI/2)-%d" % (
-            dot["cx"], dot["r"], dot["d"] // 2, dot["cy"], dot["r"], dot["d"] // 2)
+        # position 0,1,2,1,0… = 1 - |(n mod 4) - 2| autour du centre
+        graph += "[b];[b][1]overlay=eval=frame:x=%.1f+(1-abs(mod(n\\,4)-2))*%.1f-%d:y=%d" % (
+            dot["cx"], dot["g"], dot["d"] // 2, dot["cy"] - dot["d"] // 2)
     return inputs, graph
 
 
@@ -364,9 +368,9 @@ def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, ti
     interlaced = f["field_order"] in ("tt", "bb")
     duration = max(1, int(duration))
     # ProRes est INTRA : chaque image se décode seule. On n'encode donc que les images
-    # DIFFÉRENTES (une seule, ou une par seconde en mode animé), puis on les répète par
+    # DIFFÉRENTES (une seule, ou ANIM_STEPS par seconde en mode animé), puis on les répète par
     # copie de flux (≈ 0,5 s au lieu de ~6 s pour 10 s de clip).
-    frames = duration if st["anim"] else 1
+    frames = duration * ANIM_STEPS if st["anim"] else 1
     with tempfile.TemporaryDirectory(dir=os.path.dirname(dst) or None) as tmp:
         inputs, graph = _graph(slot, player_name, st, f, w, h, tmp, f["fps"], timeout)
         if interlaced:
@@ -396,7 +400,7 @@ def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, ti
             lst = os.path.join(tmp, "list.txt")
             with open(lst, "w") as fh:
                 for i in range(total):
-                    fh.write("file 's%05d.mov'\n" % min(frames - 1, i * den // num))
+                    fh.write("file 's%05d.mov'\n" % min(frames - 1, i * den * ANIM_STEPS // num))
             vin = ["-f", "concat", "-safe", "0", "-i", lst]
         cmd = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error"] + vin
         if audio_channels:
