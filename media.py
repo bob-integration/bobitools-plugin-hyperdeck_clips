@@ -175,12 +175,18 @@ def fix_field_order(src, dst, order="tt", timeout=1800):
 
 # Apparence des bouche-trous, réglable par lecteur. Défaut = le visuel d'origine : fond
 # noir, infos en gris, discret s'il part à l'antenne par erreur.
+#   anim        : une roue (un point qui avance d'un cran par seconde) et un compteur des
+#                 secondes, pour voir que le HyperDeck LIT. Tout change une fois par seconde :
+#                 on n'encode qu'UNE image par seconde, répétée par copie de flux (coût ≈ fixe).
+#   transparent : ProRes 4444 seulement (fill & key) : le fond devient un cartouche autour
+#                 des infos, le reste de l'image est transparent.
 DEFAULT_STYLE = {
     "bg": "#000000", "fg": "#6E6E6E", "bg_by_cat": {},
     "show": {"num": True, "nom": True, "cat": True, "lecteur": True, "mention": True},
-    "mention": "clip non livré",
+    "mention": "clip non livré", "anim": False, "transparent": False,
 }
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+_NEW_KEYS = ("anim", "transparent")   # absents des empreintes tant qu'ils sont éteints
 
 
 def norm_style(style):
@@ -190,7 +196,8 @@ def norm_style(style):
            "bg_by_cat": {str(k): v for k, v in (st.get("bg_by_cat") or {}).items()
                          if _HEX.match(str(v or ""))},
            "show": {k: bool((st.get("show") or {}).get(k, d)) for k, d in DEFAULT_STYLE["show"].items()},
-           "mention": str(st.get("mention") if st.get("mention") is not None else DEFAULT_STYLE["mention"])[:120]}
+           "mention": str(st.get("mention") if st.get("mention") is not None else DEFAULT_STYLE["mention"])[:120],
+           "anim": bool(st.get("anim")), "transparent": bool(st.get("transparent"))}
     return out
 
 
@@ -200,16 +207,38 @@ def placeholder_key(slot, fmt, duration, audio_channels, player_name, style=None
     st = norm_style(style)
     # Le style n'entre dans l'empreinte que s'il diffère du défaut : les bouche-trous posés
     # avant l'arrivée du réglage gardent leur empreinte (et ne passent pas « périmés »).
+    # Idem pour les options venues après (anim, transparent) : absentes tant qu'éteintes.
     if st != norm_style(None):
-        parts.append({**st, "bg_cat": st["bg_by_cat"].get(slot.get("cat") or ""), "bg_by_cat": None})
+        part = {**st, "bg_cat": st["bg_by_cat"].get(slot.get("cat") or ""), "bg_by_cat": None}
+        for k in _NEW_KEYS:
+            if not part[k]:
+                del part[k]
+        parts.append(part)
     raw = json.dumps(parts, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
-def _filters(slot, player_name, style, w, h, tmp):
-    """Calques drawtext empilés et centrés verticalement selon les infos choisies."""
-    st = norm_style(style)
-    sh, fg, k = st["show"], st["fg"].replace("#", "0x"), h / 1080.0
+def _alpha(st, fmt):
+    return bool(st["transparent"]) and (fmt or {}).get("codec_tag") == "ap4h"
+
+
+def _mix(fg, bg, a):
+    """Couleur `fg` posée à l'opacité `a` sur `bg`, rendue OPAQUE (« 0xRRGGBB@1.00 »)."""
+    f = [int(fg[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    return "0x%02X%02X%02X@1.00" % tuple(round(x * a + y * (1 - a)) for x, y in zip(f, b))
+
+
+def _layout(slot, player_name, st, w, h, tmp, fg=None, counter=None, opaque_on=None):
+    """Calques empilés et centrés verticalement : infos choisies, puis (anim) roue + compteur.
+    Rend (filtres de la chaîne principale, position du point de la roue ou None).
+    `opaque_on` (mode transparent) : les gris semi-transparents sont pré-mélangés à ce fond,
+    sinon ils perceraient la découpe (le programme passerait à travers les lettres)."""
+    sh, k = st["show"], h / 1080.0
+    fg = fg or st["fg"]
+
+    def col(a):
+        return _mix(fg, opaque_on, a) if opaque_on else "%s@%.2f" % (fg.replace("#", "0x"), a)
     sub = " · ".join(x for x in ((slot.get("cat") if sh["cat"] else ""),
                                   (player_name if sh["lecteur"] else "")) if x)
     lines = [(str(slot.get("num") or ""), FONT_BOLD, 150, 1.0) if sh["num"] else None,
@@ -218,7 +247,9 @@ def _filters(slot, player_name, style, w, h, tmp):
              (st["mention"], FONT, 44, 0.7) if sh["mention"] and st["mention"].strip() else None]
     lines = [l for l in lines if l and l[0].strip()]
     heights = [size * 1.55 for _, _, size, _ in lines]
-    y = -sum(heights) / 2
+    wheel_h, cnt_h = 190, 80
+    total = sum(heights) + (wheel_h + cnt_h if st["anim"] else 0)
+    y = -total / 2
     out = []
     for i, ((txt, font, size, alpha), hh) in enumerate(zip(lines, heights)):
         tf = os.path.join(tmp, "l%d.txt" % i)
@@ -226,23 +257,99 @@ def _filters(slot, player_name, style, w, h, tmp):
             fh.write(txt)
         center = y + hh / 2
         y += hh
-        out.append("drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=%s@%.2f:"
-                   "x=(w-text_w)/2:y=h/2-text_h/2+%d" % (font, tf, max(10, int(size * k)), fg, alpha,
+        out.append("drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=%s:"
+                   "x=(w-text_w)/2:y=h/2-text_h/2+%d" % (font, tf, max(10, int(size * k)), col(alpha),
                                                        int(center * k)))
-    bg = st["bg_by_cat"].get(slot.get("cat") or "", st["bg"])
-    return out, bg.replace("#", "0x")
+    dot = None
+    if st["anim"]:
+        import math
+        cx, cy, r, d = w / 2, h / 2 + (y + wheel_h / 2) * k, 62 * k, max(4, int(14 * k))
+        for i in range(12):
+            a = 2 * math.pi * i / 12 - math.pi / 2
+            out.append("drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill"
+                       % (cx + r * math.cos(a) - d / 2, cy + r * math.sin(a) - d / 2, d, d, col(0.35)))
+        # Compteur : une image par seconde → l'indice d'image n EST la seconde.
+        txt = counter if counter is not None else r"%{eif\:n\:d\:2}"
+        out.append("drawtext=fontfile=%s:fontsize=%d:fontcolor=%s:x=(w-text_w)/2:"
+                   "y=h/2-text_h/2+%d:text='%s'" % (FONT_BOLD, max(10, int(56 * k)), col(0.9),
+                                                    int((y + wheel_h + cnt_h / 2) * k), txt))
+        dd = max(6, int(24 * k))
+        dot = {"cx": cx, "cy": cy, "r": r, "d": dd}
+    return out, dot
+
+
+def _bbox(slot, player_name, st, w, h, tmp, timeout):
+    """Cadre exact des infos (textes, roue, compteur au plus large) : mesuré par ffmpeg
+    lui-même (filtre bbox) sur un rendu blanc sur noir — aucune estimation de police."""
+    filters, dot = _layout(slot, player_name, st, w, h, tmp, fg="#FFFFFF", counter="88")
+    if dot:   # la roue entière, point compris
+        filters.append("drawbox=x=%d:y=%d:w=%d:h=%d:color=white:t=fill"
+                       % (dot["cx"] - dot["r"] - dot["d"], dot["cy"] - dot["r"] - dot["d"],
+                          2 * (dot["r"] + dot["d"]), 2 * (dot["r"] + dot["d"])))
+    if not filters:
+        return None
+    p = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info", "-f", "lavfi",
+                        "-i", "color=c=black:s=%dx%d" % (w, h), "-frames:v", "1",
+                        "-vf", ",".join(filters + ["bbox=min_val=40"]), "-f", "null", "-"],
+                       capture_output=True, text=True, timeout=timeout)
+    m = re.findall(r"x1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+)", p.stderr or "")
+    if not m:
+        return None
+    x1, x2, y1, y2 = map(int, m[-1])
+    pad = int(56 * h / 1080.0)
+    x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
+    x2, y2 = min(w - 1, x2 + pad), min(h - 1, y2 + pad)
+    return x1 - x1 % 2, y1 - y1 % 2, (x2 - x1 + 2) // 2 * 2, (y2 - y1 + 2) // 2 * 2
+
+
+def _graph(slot, player_name, st, fmt, w, h, tmp, rate, timeout):
+    """Entrées lavfi + graphe complet → [v]. `rate` = cadence de la source."""
+    alpha = _alpha(st, fmt)
+    bgh = st["bg_by_cat"].get(slot.get("cat") or "", st["bg"])
+    bg = bgh.replace("#", "0x")
+    filters, dot = _layout(slot, player_name, st, w, h, tmp, opaque_on=bgh if alpha else None)
+    if alpha:
+        inputs = ["color=c=black@0:s=%dx%d:r=%s,format=yuva444p10le" % (w, h, rate)]
+        box = _bbox(slot, player_name, st, w, h, tmp, timeout)
+        if box:   # cartouche autour des infos ; sans info du tout, image entièrement transparente
+            filters.insert(0, "drawbox=x=%d:y=%d:w=%d:h=%d:color=%s@1:t=fill:replace=1" % (box + (bg,)))
+    else:
+        inputs = ["color=c=%s:s=%dx%d:r=%s" % (bg, w, h, rate)]
+    graph = "[0]" + (",".join(filters) if filters else "null")
+    if dot:
+        inputs.append("color=c=%s:s=%dx%d:r=%s" % (st["fg"].replace("#", "0x"), dot["d"], dot["d"], rate))
+        graph += "[b];[b][1]overlay=eval=frame:x=%.1f+%.1f*cos(2*PI*n/12-PI/2)-%d:y=%.1f+%.1f*sin(2*PI*n/12-PI/2)-%d" % (
+            dot["cx"], dot["r"], dot["d"] // 2, dot["cy"], dot["r"], dot["d"] // 2)
+    return inputs, graph
+
+
+def _lavfi(inputs):
+    out = []
+    for i in inputs:
+        out += ["-f", "lavfi", "-i", i]
+    return out
 
 
 def render_preview(slot, fmt, player_name, style, dst, timeout=60):
-    """Une image PNG du bouche-trou (aperçu des réglages), sans encodage ProRes."""
+    """Une image PNG du bouche-trou (aperçu des réglages), sans encodage ProRes. En mode
+    transparent, PNG avec couche alpha (la page la montre sur un damier)."""
     f = dict(DEFAULT_FORMAT, **(fmt or {}))
+    st = norm_style(style)
     w, h = int(f["width"]), int(f["height"])
     with tempfile.TemporaryDirectory(dir=os.path.dirname(dst) or None) as tmp:
-        filters, bg = _filters(slot, player_name, style, w, h, tmp)
-        _run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-              "color=c=%s:s=%dx%d" % (bg, w, h), "-frames:v", "1",
-              "-vf", ",".join(filters + ["scale=960:-2"]) if filters else "scale=960:-2", dst], timeout)
+        inputs, graph = _graph(slot, player_name, st, f, w, h, tmp, "25", timeout)
+        graph += ",scale=960:-2" + (",format=rgba" if _alpha(st, f) else "") + "[v]"
+        _run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error"] + _lavfi(inputs)
+             + ["-filter_complex", graph, "-map", "[v]", "-frames:v", "1", dst], timeout)
     return dst
+
+
+def _rate(fps):
+    try:
+        n, d = (str(fps).split("/") + ["1"])[:2]
+        return int(n), int(d)
+    except ValueError:
+        return 25, 1
 
 
 def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, timeout=600, style=None):
@@ -252,28 +359,46 @@ def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, ti
     pr = PRORES.get(f["codec_tag"])
     if not pr:
         raise RuntimeError("bouche-trou : codec %s non géré" % f["codec_tag"])
+    st = norm_style(style)
     w, h = int(f["width"]), int(f["height"])
     interlaced = f["field_order"] in ("tt", "bb")
+    duration = max(1, int(duration))
+    # ProRes est INTRA : chaque image se décode seule. On n'encode donc que les images
+    # DIFFÉRENTES (une seule, ou une par seconde en mode animé), puis on les répète par
+    # copie de flux (≈ 0,5 s au lieu de ~6 s pour 10 s de clip).
+    frames = duration if st["anim"] else 1
     with tempfile.TemporaryDirectory(dir=os.path.dirname(dst) or None) as tmp:
-        filters, bg = _filters(slot, player_name, style, w, h, tmp)
+        inputs, graph = _graph(slot, player_name, st, f, w, h, tmp, f["fps"], timeout)
         if interlaced:
-            filters.append("setfield=%s" % ("tff" if f["field_order"] == "tt" else "bff"))
-        filters.append("format=%s" % pr["pix"])
-        # ProRes est INTRA : chaque image se décode seule. On n'encode donc qu'UNE image
-        # (≈ 0,2 s au lieu de ~5 s pour 10 s de clip), puis on la répète par copie de flux.
-        one = os.path.join(tmp, "one.mov")
-        cmd = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
-               "-f", "lavfi", "-i", "color=c=%s:s=%dx%d:r=%s" % (bg, w, h, f["fps"]),
-               "-frames:v", "1", "-vf", ",".join(filters),
-               "-c:v", "prores_ks", "-profile:v", str(pr["profile"]), "-vendor", "apl0",
+            graph += ",setfield=%s" % ("tff" if f["field_order"] == "tt" else "bff")
+        graph += ",format=%s[v]" % pr["pix"]
+        enc = ["-c:v", "prores_ks", "-profile:v", str(pr["profile"]), "-vendor", "apl0",
                "-pix_fmt", pr["pix"]]
+        if pr["pix"].startswith("yuva"):
+            enc += ["-alpha_bits", "16"]
         if interlaced:
-            cmd += ["-flags", "+ildct+ilme", "-field_order", f["field_order"]]
-        cmd += ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-                "-f", "mov", one]
-        _run(cmd, timeout)
-        cmd = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
-               "-stream_loop", "-1", "-i", one]
+            enc += ["-flags", "+ildct+ilme", "-field_order", f["field_order"]]
+        enc += ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
+        base = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error"] + _lavfi(inputs) \
+            + ["-filter_complex", graph, "-map", "[v]", "-frames:v", str(frames)] + enc
+        if frames == 1:
+            src = os.path.join(tmp, "one.mov")
+            _run(base + ["-f", "mov", src], timeout)
+            vin = ["-stream_loop", "-1", "-i", src]
+        else:
+            # Une image par fichier, puis liste de concaténation : chaque seconde répétée
+            # autant de fois qu'elle a d'images (cadences fractionnaires comprises).
+            _run(base + ["-f", "segment", "-segment_format", "mov", "-reset_timestamps", "1",
+                         "-segment_frames", ",".join(str(i) for i in range(1, frames)),
+                         os.path.join(tmp, "s%05d.mov")], timeout)
+            num, den = _rate(f["fps"])
+            total = duration * num // den
+            lst = os.path.join(tmp, "list.txt")
+            with open(lst, "w") as fh:
+                for i in range(total):
+                    fh.write("file 's%05d.mov'\n" % min(frames - 1, i * den // num))
+            vin = ["-f", "concat", "-safe", "0", "-i", lst]
+        cmd = ["ffmpeg", "-nostdin", "-y", "-loglevel", "error"] + vin
         if audio_channels:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]
         cmd += ["-t", str(duration), "-map", "0:v"]

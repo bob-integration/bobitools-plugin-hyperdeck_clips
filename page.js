@@ -884,18 +884,21 @@ window.BTTools.hyperdeck_clips = (function () {
     }
 
     // ── Apparence des bouche-trous ──────────────────────────
-    const DEF_STYLE = { bg: "#000000", fg: "#6e6e6e", bg_by_cat: {}, show: { num: true, nom: true, cat: true, lecteur: true, mention: true }, mention: "clip non livré" };
+    const DEF_STYLE = { bg: "#000000", fg: "#6e6e6e", bg_by_cat: {}, show: { num: true, nom: true, cat: true, lecteur: true, mention: true }, mention: "clip non livré", anim: false, transparent: false };
     function normStyle(st) {
         st = st || {};
         return { bg: (st.bg || DEF_STYLE.bg).toLowerCase(), fg: (st.fg || DEF_STYLE.fg).toLowerCase(),
             bg_by_cat: Object.fromEntries(Object.entries(st.bg_by_cat || {}).map(([k, v]) => [k, String(v).toLowerCase()])),
-            show: Object.assign({}, DEF_STYLE.show, st.show || {}), mention: st.mention == null ? DEF_STYLE.mention : st.mention };
+            show: Object.assign({}, DEF_STYLE.show, st.show || {}), mention: st.mention == null ? DEF_STYLE.mention : st.mention,
+            anim: !!st.anim, transparent: !!st.transparent };
     }
     function fillStyle(p, isNew) {
         const f = $("#hc-set-form").elements, st = normStyle(p.ph_style);
         f.ph_bg.value = st.bg; f.ph_fg.value = st.fg; f.ph_mention.value = st.mention;
         ["num", "nom", "cat", "lecteur", "mention"].forEach((k) => { f["show_" + k].checked = !!st.show[k]; });
         f.ph_cache.checked = !!p.ph_cache;
+        f.ph_anim.checked = st.anim; f.ph_transparent.checked = st.transparent;
+        transpState();
         const cats = isNew || !view ? [] : (view.categories || []);
         $("#hc-cat-colors").innerHTML = cats.length ? cats.map((c) => {
             const on = c in st.bg_by_cat;
@@ -917,7 +920,14 @@ window.BTTools.hyperdeck_clips = (function () {
             if (c.checked) by[c.dataset.catOn] = root.querySelector('[data-cat-color="' + CSS.escape(c.dataset.catOn) + '"]').value.toLowerCase();
         });
         return { bg: f.ph_bg.value.toLowerCase(), fg: f.ph_fg.value.toLowerCase(), bg_by_cat: by, mention: f.ph_mention.value,
-            show: { num: f.show_num.checked, nom: f.show_nom.checked, cat: f.show_cat.checked, lecteur: f.show_lecteur.checked, mention: f.show_mention.checked } };
+            show: { num: f.show_num.checked, nom: f.show_nom.checked, cat: f.show_cat.checked, lecteur: f.show_lecteur.checked, mention: f.show_mention.checked },
+            anim: f.ph_anim.checked, transparent: f.ph_transparent.checked };
+    }
+    // La transparence n'existe qu'en ProRes 4444 : ailleurs l'option reste cochable (elle
+    // est gardée) mais SANS effet, et on le dit.
+    function transpState() {
+        const f = $("#hc-set-form").elements, is4444 = f.codec_tag.value === "ap4h";
+        $("#hc-transp-note").textContent = f.ph_transparent.checked && !is4444 ? "— sans effet : choisissez ProRes 4444 dans « Format des clips »" : "";
     }
     let previewT = null, previewUrl = null, previewSeq = 0;
     function previewSoon() { clearTimeout(previewT); previewT = setTimeout(preview, 350); }
@@ -927,7 +937,7 @@ window.BTTools.hyperdeck_clips = (function () {
         $("#hc-ph-msg").textContent = "…";
         try {
             const q = JSON.stringify({ num: $("#hc-ph-num").value, style: styleFromForm(), lecteur: f.name.value,
-                format: { width: +f.width.value, height: +f.height.value } });
+                format: { width: +f.width.value, height: +f.height.value, codec_tag: f.codec_tag.value } });
             const r = await fetch("/api/tools/" + encodeURIComponent(ctx.type) + "/players/" + encodeURIComponent(pid) + "/ph-preview?q=" + encodeURIComponent(q));
             if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("HTTP " + r.status));
             const blob = await r.blob();
@@ -1267,7 +1277,10 @@ window.BTTools.hyperdeck_clips = (function () {
             if (t.dataset.catOn !== undefined) { root.querySelector('[data-cat-color="' + CSS.escape(t.dataset.catOn) + '"]').disabled = !t.checked; }
             if (t.matches("[name^=ph_], [name^=show_], [data-cat-on], [data-cat-color], [name=name], [name=width], [name=height]") && t.name !== "ph_cache") previewSoon();
         });
-        $("#hc-set-form").addEventListener("change", (e) => { if (e.target.matches("[data-cat-on], [name^=show_]")) previewSoon(); });
+        $("#hc-set-form").addEventListener("change", (e) => {
+            if (e.target.matches("[data-cat-on], [name^=show_], [name=ph_anim], [name=ph_transparent], [name=codec_tag]")) previewSoon();
+            if (e.target.matches("[name=ph_transparent], [name=codec_tag]")) transpState();
+        });
         $("#hc-ph-num").addEventListener("change", previewSoon);
         $("#hc-set-form").elements.name.addEventListener("input", tplPreview);
         $("#hc-test").onclick = testConn;

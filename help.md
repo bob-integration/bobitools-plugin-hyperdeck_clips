@@ -26,6 +26,20 @@ relecture (RETR) puis renvoi ; nom des bouche-trous = refabrication. Pendant un 
 l'emplacement peut porter deux fichiers (contrepartie inévitable sans renommage).
 « Tester la connexion » refait l'essai et montre l'échange brut.
 
+## Bouche-trous animés et transparents (0.9.0)
+- **Animé** : une roue (un point avance d'un cran par seconde) et un compteur des secondes,
+  pour voir que le HyperDeck lit. Tout change une fois par seconde : on n'encode qu'une
+  image par seconde (segment muxer, 1 image par fichier) et la liste de concaténation la
+  répète autant de fois qu'elle a d'images (cadences fractionnaires comprises), par copie
+  de flux. Coût mesuré : 1,2 s au lieu de 0,7 s pour 10 s en 1080i50.
+- **Transparent** (ProRes 4444 seulement, sortie fill & key) : fond transparent, cartouche
+  de la couleur de fond autour des infos. Le cadre est MESURÉ par ffmpeg (filtre `bbox` sur
+  un rendu blanc sur noir, compteur « 88 »), plus une marge. `drawbox` exige `replace=1`
+  pour écrire l'alpha ; les gris semi-transparents sont pré-mélangés au fond (sinon ils
+  perceraient la découpe). Poids : ≈ 145 Mo pour 10 s (c'est le 4444, pas l'alpha).
+- Ces options n'entrent dans l'empreinte des bouche-trous que cochées : les bouche-trous
+  déjà posés ne passent pas « périmés » à la mise à jour.
+
 ## Espace du HyperDeck
 Le protocole ne donne que le temps d'enregistrement restant. L'espace libre en est
 déduit au débit du format d'enregistrement (`configuration` → `file format`, débits ProRes
@@ -37,6 +51,8 @@ le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.2
 - Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
 - Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
 - Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).
+- Lecture d'un bouche-trou animé (roue régulière, compteur) et découpe d'un bouche-trou
+  ProRes 4444 transparent en sortie fill & key.
 
 ## Dépendance cœur
 Les envois passent en `application/octet-stream` : il faut le relais par morceaux du cœur

@@ -135,6 +135,11 @@
           <div class="hc-grid">
             <label for="hc-s-mention">Texte de la mention</label><input id="hc-s-mention" name="ph_mention" maxlength="120" placeholder="clip non livré">
           </div>
+          <div class="hc-sub-h">Mouvement et transparence</div>
+          <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="ph_anim">
+            <span>Animé : une roue qui tourne d'un cran par seconde et un compteur des secondes, pour voir que le HyperDeck lit (fabrication ≈ 1 s de plus)</span></label>
+          <label class="hc-toggle" id="hc-transp-l"><input type="checkbox" class="ios-toggle" name="ph_transparent">
+            <span>Transparent (ProRes 4444, sortie fill &amp; key) : le fond devient un cartouche autour des infos, le reste de l'image est transparent <span class="hc-note" id="hc-transp-note"></span></span></label>
           <label class="hc-toggle"><input type="checkbox" class="ios-toggle" name="ph_cache">
             <span>Garder les bouche-trous sur le serveur (évite de les refabriquer ; ≈ <span id="hc-cache-est">?</span> pour cette liste)</span></label>
         </div>
