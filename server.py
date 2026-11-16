@@ -132,7 +132,13 @@ def _storage(p, sc):
         bps = _deck.bitrate(cfg.get("file format"), d["slot"].get("video_format"),
                             p.get("audio_channels") or 2)
         d["record_format"] = cfg.get("file format")
-        if rt is not None and bps:
+        d["margin"] = engine.DECK_MARGIN
+        d["queued"] = engine.pending_bytes(p["id"])
+        if d["slot"].get("remaining_size") is not None:
+            # Octets EXACTS annoncés par la machine : plus d'estimation.
+            d["free"] = d["slot"]["remaining_size"]
+            d["total"] = d["slot"].get("total_size")
+        elif rt is not None and bps:
             d["free_est"] = int(rt * bps)
             if d.get("bytes") is not None:
                 d["total_est"] = d["free_est"] + d["bytes"]
@@ -436,6 +442,11 @@ class Handler(BaseHTTPRequestHandler):
         if not n:
             raise _err(400, "fichier vide")
         self._space_for(n)
+        # Carte du HyperDeck : relue à l'instant, AVANT de recevoir le fichier.
+        full = engine.deck_room(p, n)
+        if full:
+            self._drain()
+            raise _err(507, full, reason="deck_full")
         os.makedirs(store.INCOMING, exist_ok=True)
         path = os.path.join(store.INCOMING, "%s.mov" % secrets.token_hex(6))
         self._receive(path)

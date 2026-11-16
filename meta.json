@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.6",
+   "date": "2026-11-16",
+   "notes": "Carte du HyperDeck pleine : dépôt REFUSÉ. L'outil lit l'espace libre EN OCTETS annoncé par la machine (« remaining size », protocole 1.19 ; avant, une estimation par le temps d'enregistrement qui donnait ≈ 59 Go pour 127 Go réels) et refuse un fichier si sa taille + les envois déjà en file + 512 Mo de réserve dépassent la place libre : dans la page avant tout envoi, au serveur juste avant de recevoir le fichier (relu à l'instant), et au moment de partir vers le HyperDeck pour un envoi resté en file. Message : place libre, place nécessaire, que faire. Machine qui n'annonce pas ses octets : pas de blocage (estimation trop incertaine)."
+  },
+  {
    "version": "0.9.5",
    "date": "2026-11-16",
    "notes": "« ACTION MANUELLE REQUISE » ne s'affiche plus à tort pendant les imports. 0.9.4 prenait pour un fichier bloquant tout clip listé par le HyperDeck et absent du FTP, or c'est l'état NORMAL juste après un envoi (le HyperDeck liste encore l'ancien fichier le temps de relire sa carte) et pendant un transfert (listing FTP d'avant). Désormais l'alerte exige que l'écart persiste 2 min d'affilée, hors fenêtre de relecture, sans transfert en cours ni listing en cache ; tout transfert remet le compteur à zéro. Avant cela, l'écart reste présenté comme « mise à jour en cours »."

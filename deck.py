@@ -97,6 +97,31 @@ def _params(lines):
     return out
 
 
+def _int(v):
+    v = str(v or "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def slot_space(host, port=PORT, timeout=4):
+    """(octets libres, octets totaux) du disque ACTIF, relus à l'instant ; None si la
+    machine ne les annonce pas (ancien logiciel : seul le temps restant est donné)."""
+    c = _Conn(host, port or PORT, timeout)
+    try:
+        c.block(timeout)
+        code, text, lines = c.command("transport info", timeout)
+        sid = str(_params(lines).get("slot id") or "") if code < 300 else ""
+        if not sid.isdigit():
+            return None
+        code, text, lines = c.command("slot info: slot id: %s" % sid, timeout)
+        if code >= 300:
+            return None
+        si = _params(lines)
+        free = _int(si.get("remaining size"))
+        return (free, _int(si.get("total size"))) if free is not None else None
+    finally:
+        c.close()
+
+
 def parse_clips(lines):
     clips = []
     for l in lines:
@@ -131,7 +156,11 @@ def read(host, port=PORT, timeout=5):
                 si = _params(lines)
                 out["slot"] = {"id": sid, "volume": si.get("volume name"), "status": si.get("status"),
                                "recording_time": int(si["recording time"]) if str(si.get("recording time", "")).isdigit() else None,
-                               "video_format": si.get("video format")}
+                               "video_format": si.get("video format"),
+                               # Octets EXACTS (protocole ≥ 1.1x, ex. 1.19 relevé sur Studio HD
+                               # Plus le 2026-11-16 : « remaining size », « total size »).
+                               "remaining_size": _int(si.get("remaining size")),
+                               "total_size": _int(si.get("total size"))}
         # Format d'enregistrement (« file format: QuickTimeProResHQ ») : sert à convertir le
         # temps restant en octets (estimation), le protocole ne donnant pas d'octets libres.
         code, text, lines = c.command("configuration", timeout)

@@ -265,7 +265,11 @@ window.BTTools.hyperdeck_clips = (function () {
             // est déduit au débit du format d'enregistrement (≈), la capacité = libre + clips.
             const bits = [], tips = ["Le HyperDeck annonce son temps d'enregistrement restant, pas ses octets libres."];
             let head;
-            if (dk.free_est != null) {
+            if (dk.free != null) {
+                head = fmtSize(dk.free) + " libres" + (dk.total ? " sur " + fmtSize(dk.total) : "");
+                tips.length = 0;
+                tips.push("Espace annoncé en octets par le HyperDeck (remaining size / total size).");
+            } else if (dk.free_est != null) {
                 head = "≈ " + fmtSize(dk.free_est) + " libres" + (dk.total_est ? " sur ≈ " + fmtSize(dk.total_est) : "");
                 tips.push("Espace libre estimé : temps restant × débit du format d'enregistrement (" + (dk.record_format || "?") + ").");
                 if (dk.total_est) tips.push("Capacité = libre estimé + taille des clips présents.");
@@ -277,8 +281,9 @@ window.BTTools.hyperdeck_clips = (function () {
                 if (dk.slot.volume) bits.push("volume « " + esc(dk.slot.volume) + " »");
                 if (dk.slot.recording_time != null) bits.push("reste ≈ " + fmtHours(dk.slot.recording_time) + " d'enregistrement");
             }
-            const ratio = dk.total_est ? (dk.total_est - dk.free_est) / dk.total_est : null;
-            const cls = dk.free_est != null && dk.free_est < 5 * 1024 ** 3 ? "bad" : dk.free_est != null && dk.free_est < 20 * 1024 ** 3 ? "warn" : "";
+            const fr = dk.free != null ? dk.free : dk.free_est, tot = dk.free != null ? dk.total : dk.total_est;
+            const ratio = tot && fr != null ? (tot - fr) / tot : null;
+            const cls = fr != null && fr < 5 * 1024 ** 3 ? "bad" : fr != null && fr < 20 * 1024 ** 3 ? "warn" : "";
             if (!head) head = bits.shift() || "?";
             parts.push('<span class="hc-store ' + cls + '" title="' + esc(tips.join(" ")) + '">HyperDeck : <strong>' + head + "</strong>"
                 + (ratio != null ? ' <span class="hc-bar-p ' + cls + '"><i style="--p:' + ratio.toFixed(3) + '"></i></span>' : "")
@@ -661,6 +666,17 @@ window.BTTools.hyperdeck_clips = (function () {
                 + "<p>Attendez la fin des transferts en cours, ou libérez de la place sur le serveur.</p>", []);
             return pump();
         }
+        // Carte du HyperDeck : refus AVANT d'envoyer le fichier au serveur, sur l'espace en
+        // octets annoncé par la machine (le serveur revérifie à l'instant de toute façon).
+        const dk = view && view.storage && view.storage.deck;
+        if (dk && dk.free != null && u.file.size + (dk.queued || 0) + (dk.margin || 0) > dk.free) {
+            finish(u, "failed", "carte du HyperDeck pleine");
+            msg("Carte du HyperDeck pleine", "<p>« " + esc(u.file.name) + " » pèse " + fmtSize(u.file.size) + " ; la carte n'a que "
+                + fmtSize(dk.free) + " libres" + (dk.queued ? ", dont " + fmtSize(dk.queued) + " déjà promis aux envois en file" : "")
+                + " (et " + fmtSize(dk.margin || 0) + " gardés en réserve).</p>"
+                + "<p>Le fichier n'est pas envoyé. Libérez de la place sur la carte (retirer des clips, supprimer des fichiers hors liste), puis redéposez-le.</p>", []);
+            return pump();
+        }
         uploading = true;
         u.state = "uploading";
         render();
@@ -690,6 +706,9 @@ window.BTTools.hyperdeck_clips = (function () {
             } else if (xhr.status === 422 && d) {
                 finish(u, "failed", "refusé");
                 if (!d.fixable) refusal(u.file.name, d.problems || [d.error], d.summary, d.expected);
+            } else if (xhr.status === 507 && d && d.reason === "deck_full") {
+                finish(u, "failed", "carte du HyperDeck pleine");
+                msg("Carte du HyperDeck pleine", "<p>« " + esc(u.file.name) + " » n'est pas envoyé : " + esc(d.error) + "</p>", []);
             } else {
                 finish(u, "failed", (d && d.error) || ("HTTP " + xhr.status));
                 toast(u.num + " : " + ((d && d.error) || ("échec de l'envoi (HTTP " + xhr.status + ")")), "error");

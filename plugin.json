@@ -2,7 +2,7 @@
   "license": "GPL-3.0-or-later",
   "type": "hyperdeck_clips",
   "label": "Clips HyperDeck",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "runtime": "docker",
   "description": "Livraison des clips sur un ou plusieurs lecteurs Blackmagic HyperDeck dont l'exploitant rappelle les clips PAR LEUR RANG. Chaque lecteur a sa liste attendue (CSV déposé : Numéro, Nom, Catégorie…), présentée en emplacements groupés par catégorie. On glisse un fichier sur un emplacement : son format est contrôlé par ffprobe (pré-contrôle immédiat sur l'en-tête, puis contrôle du fichier complet), puis il part au HyperDeck par FTP sous le nom « <Numéro> - <nom d'origine> ». Remplacement (V2, V3…) SANS décaler la liste : envoi sous un nom temporaire classé en fin de liste, contrôle que le clip n'est pas à l'antenne, puis échange. Chaque emplacement vide reçoit un BOUCHE-TROU au format exact des vrais clips (fond noir, infos en gris), pour que la liste garde tous ses rangs. Vérification par le protocole réseau (TCP 9993, clips count / clips get) : nombre de clips, rang de chacun, fichiers étrangers qui décaleraient la liste. Un seul transfert FTP à la fois par HyperDeck, avancement affiché (navigateur → serveur, puis serveur → HyperDeck). Historique des versions par emplacement.",
   "badge": {
@@ -21,7 +21,7 @@
     "page_css": "page.css"
   },
   "docker": {
-    "image": "bobitool-hyperdeck_clips:0.9.5",
+    "image": "bobitool-hyperdeck_clips:0.9.6",
     "build": true,
     "port": 8080,
     "volume": "/data",

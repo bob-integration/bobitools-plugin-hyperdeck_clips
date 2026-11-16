@@ -453,6 +453,10 @@ def _worker(pid):
                 raise RuntimeError("lecteur supprimé")
             if j["kind"] == "placeholder" or (j["kind"] == "move" and j.get("mode") != "swap"):
                 _render(j, p)
+            if j["kind"] in ("deliver", "placeholder") and j.get("size"):
+                full = deck_room(p, j["size"], exclude=j)
+                if full:
+                    raise RuntimeError(full)
             if j["kind"] == "delete":
                 _delete_remote(j, p)
             elif j["kind"] == "ghost":
@@ -633,6 +637,37 @@ def _stor(ftp, j, local, name):
             raise Cancelled()
     with open(local, "rb") as fh:
         ftp.storbinary("STOR " + name, fh, blocksize=1 << 20, callback=cb)
+
+
+# Réserve gardée sur la carte du HyperDeck : on n'y envoie jamais de quoi la remplir à ras.
+DECK_MARGIN = 512 * 2**20
+
+
+def pending_bytes(pid, exclude=None):
+    """Octets encore à écrire sur la carte par les transferts en file ou en cours."""
+    with _glock:
+        return sum(max(0, (j.get("size") or 0) - (j.get("sent") or 0)) for j in _jobs.values()
+                   if j["player"] == pid and j is not exclude and j["kind"] in ("deliver", "placeholder")
+                   and j["state"] not in ("done", "error", "cancelled"))
+
+
+def deck_room(p, size, exclude=None):
+    """None si la carte a la place (ou si on ne peut pas le savoir), sinon le message de
+    refus. Relu À L'INSTANT par le protocole : jamais sur un relevé ancien."""
+    try:
+        sp = deck.slot_space(p["host"], p.get("tcp_port") or deck.PORT)
+    except Exception:
+        return None             # protocole injoignable : le transfert dira lui-même ce qui ne va pas
+    if not sp:
+        return None
+    free = sp[0]
+    queued = pending_bytes(p["id"], exclude)
+    if size + queued + DECK_MARGIN <= free:
+        return None
+    mo = lambda b: "%.1f Go" % (b / 1e9) if b >= 1e9 else "%d Mo" % (b // 10**6)
+    return ("carte du HyperDeck pleine : %s libres, il faut %s pour ce fichier%s (+ %s de réserve). "
+            "Libérez de la place sur la carte, puis redéposez le fichier."
+            % (mo(free), mo(size), (" et %s pour les envois déjà en file" % mo(queued)) if queued else "", mo(DECK_MARGIN)))
 
 
 def _swap_direct(j, p):
