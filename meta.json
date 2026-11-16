@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.2",
+   "date": "2026-11-16",
+   "notes": "CORRECTIF : depuis 0.9.0, TOUT dépôt était refusé avec « fichier illisible par ffprobe : not all arguments converted during string formatting ». Le fichier n'était pas en cause : une fonction ajoutée pour les bouche-trous animés portait le même nom qu'une fonction du contrôle de format et la remplaçait (le contrôle de cadence en dépendait aussi). Renommée. Et une erreur de l'outil pendant le contrôle n'est plus présentée comme un fichier illisible : « erreur de l'OUTIL (pas du fichier) ». Banc complet rejoué (dépôt HTTP + ffprobe, déplacement, échange, remplacement, bouche-trous, HyperDeck sans renommage)."
+  },
+  {
    "version": "0.9.1",
    "date": "2026-11-15",
    "notes": "BOUCHE-TROUS ANIMÉS : la roue (un cran par seconde, quasi immobile sur un clip de 2 s) est remplacée par TROIS POINTS dont l'allumé fait l'aller-retour, 5 pas par seconde (aller-retour complet en 0,8 s). Le compteur des secondes reste. Toujours rapide : 5 images encodées par seconde de clip (0,95 s pour un bouche-trou de 2 s, 0,65 s en fixe). Les bouche-trous animés faits en 0.9.0 passent « à refaire »."
@@ -86,5 +91,5 @@
    "notes": "Première version. Plusieurs lecteurs, chacun avec SON HyperDeck et SA liste (CSV déposé ; un CSV à plusieurs Players fait choisir le sien). Emplacements groupés par catégorie : numéro, nom, fichier en place, version, état, rang relu sur la machine. Dépôt par glisser-déposer (un emplacement, ou plusieurs fichiers « 104 - … » d'un coup) ; pré-contrôle du format sur l'en-tête lu dans le navigateur, puis ffprobe du fichier complet ; nom sur la machine « <Numéro> - <nom d'origine> ». Remplacement V2… sans décaler la liste (nom temporaire zzz_envoi_ en fin de liste, attente si le clip est à l'antenne, suppression puis renommage ; repli par envoi direct si le renommage FTP est refusé). Bouche-trous au format exact (une image ProRes encodée puis répétée : 0,5 s pour 10 s). Vérification TCP 9993 (clips count / clips get) : nombre, rang de chaque emplacement, fichiers étrangers, doublons, temporaires oubliés. Correction proposée de l'en-tête de trame des .mov sortis de ffmpeg (tb/bb → tt, sans réencodage). Un transfert FTP à la fois par HyperDeck, clips livrés avant bouche-trous. Testé sur banc (FTP pyftpdlib + simulateur 9993), JAMAIS sur un vrai HyperDeck."
   }
  ],
- "version": "0.9.1"
+ "version": "0.9.2"
 }

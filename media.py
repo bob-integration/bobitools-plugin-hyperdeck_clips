@@ -348,7 +348,7 @@ def render_preview(slot, fmt, player_name, style, dst, timeout=60):
     return dst
 
 
-def _rate(fps):
+def _fps_frac(fps):
     try:
         n, d = (str(fps).split("/") + ["1"])[:2]
         return int(n), int(d)
@@ -395,7 +395,7 @@ def render_placeholder(slot, fmt, duration, audio_channels, player_name, dst, ti
             _run(base + ["-f", "segment", "-segment_format", "mov", "-reset_timestamps", "1",
                          "-segment_frames", ",".join(str(i) for i in range(1, frames)),
                          os.path.join(tmp, "s%05d.mov")], timeout)
-            num, den = _rate(f["fps"])
+            num, den = _fps_frac(f["fps"])
             total = duration * num // den
             lst = os.path.join(tmp, "list.txt")
             with open(lst, "w") as fh:

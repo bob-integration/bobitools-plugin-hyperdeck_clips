@@ -413,9 +413,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._receive(path, limit=PRECHECK_MAX)
             try:
-                s = media.summarize(media.probe(path))
+                info = media.probe(path)
             except Exception as e:
                 return self._send(200, {"ok": False, "readable": False, "error": str(e)})
+            s = media.summarize(info)   # une erreur ici = l'outil, pas le fichier (→ 500)
             r = media.check(s, p["format"], partial=True)
             return self._send(200, dict(r, readable=True, summary=s,
                                         expected=media.format_label(p["format"])))
@@ -437,13 +438,24 @@ class Handler(BaseHTTPRequestHandler):
         os.makedirs(store.INCOMING, exist_ok=True)
         path = os.path.join(store.INCOMING, "%s.mov" % secrets.token_hex(6))
         self._receive(path)
+        # Deux côtés distincts : ffprobe refuse le FICHIER (RuntimeError de media.probe), ou
+        # l'OUTIL plante en lisant le résultat — à ne jamais présenter comme un fichier
+        # illisible (0.9.0 : un bogue de l'outil refusait tous les dépôts sous ce libellé).
         try:
-            s = media.summarize(media.probe(path))
+            info = media.probe(path)
         except Exception as e:
             os.remove(path)
             raise _err(422, "fichier illisible : %s" % e,
                        problems=["fichier illisible par ffprobe (%d octets reçus) : %s" % (n, e)])
-        r = media.check(s, p["format"])
+        try:
+            s = media.summarize(info)
+            r = media.check(s, p["format"])
+        except Exception as e:
+            os.remove(path)
+            traceback.print_exc()
+            raise _err(500, "erreur de l'outil pendant le contrôle du format : %s" % e,
+                       problems=["erreur de l'OUTIL (pas du fichier) pendant le contrôle du format : %s — "
+                                 "le fichier n'est pas en cause, signalez-le" % e])
         if not r["ok"]:
             if r["fixable_field_order"]:
                 fid = engine.pending_add(pid, num, path, original, self._user(), s, r)
