@@ -138,6 +138,7 @@ window.BTTools.hyperdeck_clips = (function () {
         const c = p.counts || {};
         const bad = (c.missing || 0) + (c.duplicate || 0);
         if (p.order && !p.order.ok && p.order.settling && !bad) return { cls: "warn", text: "relecture du HyperDeck…" };
+        if (p.order && (p.order.ghosts || []).length) return { cls: "bad", text: "action manuelle requise" };
         if (bad || (p.order && !p.order.ok)) return { cls: "bad", text: "écart avec le HyperDeck" };
         if (c.stale_placeholder || c.foreign_file || !p.deck_ok) return { cls: "warn", text: "à surveiller" };
         return { cls: "ok", text: (c.delivered || 0) + "/" + p.slots + " livrés" };
@@ -211,6 +212,7 @@ window.BTTools.hyperdeck_clips = (function () {
             if (parts.length) { txt = (txt ? txt + "<br>" : "") + parts.join("<br>"); if (cls === "ok" || !cls) cls = "warn"; }
             if (!sc.ftp.ok && !sc.deck.ok) cls = "bad";
         }
+        if (sc && o && (o.ghosts || []).length) cls = "bad manual";
         el.className = "hc-verdict " + cls;
         // Barre : le premier énoncé en gras seulement (une ligne) ; le texte complet va à droite.
         const m = /<strong>([\s\S]*?)<\/strong>/.exec(txt);
@@ -305,9 +307,27 @@ window.BTTools.hyperdeck_clips = (function () {
         const ghosts = new Set(o.ghosts || []);
         const extra = (o.extra || []).filter((n) => !staleNames.has(n) && !ghosts.has(n));
         if (extra.length) lines.push("<li>hors liste, vu par le HyperDeck : " + extra.slice(0, 4).map(q).join(", ") + (extra.length > 4 ? "…" : "") + "</li>");
-        ghosts.forEach((n) => lines.push("<li>" + q(n) + " : lu par le HyperDeck mais <strong>invisible à son FTP</strong> (nom mal formé, souvent un accent écrit par un Mac). "
-            + "L'outil ne peut pas le retirer : sortez la carte, supprimez ce fichier depuis un ordinateur, remettez la carte.</li>"));
+
         if (o.count !== o.expected) lines.push("<li>le HyperDeck compte <strong>" + o.count + "</strong> clips pour " + o.expected + " attendus</li>");
+        // Fichier fantôme : c'est LA cause, et l'outil ne sait pas la réparer seul. Elle passe
+        // en titre (barre rouge) avec le geste manuel, AVANT la liste des rangs décalés qui
+        // n'en est que la conséquence (retour utilisateur : « caché tout en bas en petit »).
+        if (ghosts.size) {
+            const names = [...ghosts];
+            const btns = (n) => canManage ? '<div class="hc-ghost-btns"><button class="btn" type="button" data-ghost="' + esc(n) + '">Réessayer de le supprimer</button>'
+                + ' <button class="btn" type="button" data-ghost-unlist="' + esc(n) + '">Le retirer de la liste de lecture (provisoire)</button></div>' : "";
+            return "<strong>⚠ ACTION MANUELLE REQUISE : " + (names.length > 1 ? names.length + " fichiers bloquent" : "un fichier bloque") + " la liste, à supprimer à la main sur la carte</strong>"
+                + '<div class="hc-ghost">' + names.map((n) => '<p class="hc-mono hc-ghost-name">' + esc(n) + "</p>").join("")
+                + "<p>Le HyperDeck lit ce fichier, mais son FTP ne le voit pas et refuse de le supprimer (nom mal formé, souvent un accent écrit par un Mac). "
+                + "<strong>L'outil ne peut pas le retirer.</strong> Tant qu'il est sur la carte, il décale tous les rangs qui suivent.</p>"
+                + "<p><strong>À faire :</strong></p><ol>"
+                + "<li>Sortir la carte du HyperDeck et la mettre sur un ordinateur.</li>"
+                + "<li>Supprimer ce fichier, et seulement lui.</li>"
+                + "<li>Remettre la carte, puis cliquer sur « Vérifier ».</li></ol>"
+                + "<p>Si le lecteur ne porte que des bouche-trous, vous pouvez aussi formater la carte depuis le HyperDeck, puis cliquer sur « Combler les vides ».</p>"
+                + names.map(btns).join("") + "</div>"
+                + '<p class="hc-ghost-then">Conséquence sur la liste :</p><ul class="hc-gaps">' + lines.join("") + "</ul>";
+        }
         const head = o.settling
             ? "<strong>⟳ Le HyperDeck n'a pas encore pris en compte le dernier changement.</strong> Il relit son disque après chaque transfert ; nouvelle vérification automatique dans quelques secondes."
             : "<strong>⚠ Le HyperDeck ne voit pas la liste attendue</strong>" + (o.since_change != null && o.since_change < 3600 ? ", " + o.since_change + " s après le dernier transfert" : "")
@@ -1212,6 +1232,20 @@ window.BTTools.hyperdeck_clips = (function () {
                     await ctx.api("players/" + pid + "/slots/" + ds.clear + "/clear", { method: "POST", body: {} });
                     $("#hc-slot-dlg").open && $("#hc-slot-dlg").close();
                     toast(ds.clear + " : bouche-trou en file", "info");
+                    return loadView().then(schedule);
+                }
+                if (ds.ghost) {
+                    if (!(await confirmDlg("Supprimer de la carte", "Supprimer définitivement « <span class=\"hc-mono\">" + esc(ds.ghost) + "</span> » de la carte du HyperDeck ?"
+                        + "<br><br>Son FTP ne liste pas ce fichier : l'outil essaie toutes les écritures possibles de son nom. Si aucune ne passe, le transfert en échec dira quoi faire.", "Supprimer"))) return;
+                    await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.ghost } });
+                    toast("suppression en file — suivez-la dans Transferts", "info");
+                    return loadView().then(schedule);
+                }
+                if (ds.ghostUnlist) {
+                    if (!(await confirmDlg("Retirer de la liste de lecture", "Le HyperDeck oublie « <span class=\"hc-mono\">" + esc(ds.ghostUnlist) + "</span> » dans sa liste : les rangs redeviennent justes TOUT DE SUITE."
+                        + "<br><br><strong>Provisoire</strong> : le fichier reste sur la carte et revient dès que le HyperDeck relit son disque (après un envoi, au remontage de la carte).", "Retirer de la liste"))) return;
+                    await ctx.api("players/" + pid + "/remote/delete", { method: "POST", body: { name: ds.ghostUnlist, mode: "timeline" } });
+                    toast("retiré de la liste de lecture (provisoire)", "info");
                     return loadView().then(schedule);
                 }
                 if (ds.delRemote) {

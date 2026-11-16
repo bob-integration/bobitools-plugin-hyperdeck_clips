@@ -198,3 +198,48 @@ def bitrate(file_format, video_format, audio_channels=2):
     pixels = _WIDTH[m.group(1)] * h / (1920 * 1080)
     video = mbps * pixels * fps / 25 * 1e6 / 8
     return video + max(0, audio_channels) * 48000 * 3      # PCM 24 bits 48 kHz
+
+
+_CLIP_RAW = re.compile(rb"^(\d+):\s+(.*?)\s+\d{2}:\d{2}:\d{2}[:;.]\d{2}\s+\d{2}:\d{2}:\d{2}[:;.]\d{2}\s*$")
+
+
+def raw_clip_names(host, port=PORT, timeout=5):
+    """{id: nom en OCTETS BRUTS} de `clips get` : pour viser un fichier dont le nom est mal
+    formé exactement comme le HyperDeck l'écrit, sans passer par un décodage."""
+    c = _Conn(host, port or PORT, timeout)
+    try:
+        c.block(timeout)
+        c.sock.sendall(b"clips get\r\n")
+        deadline, out, started = time.time() + 15, {}, False
+        while True:
+            while b"\n" not in c.buf:
+                if time.time() > deadline:
+                    raise DeckError("clips get : réponse incomplète")
+                chunk = c.sock.recv(65536)
+                if not chunk:
+                    raise DeckError("connexion fermée par le HyperDeck")
+                c.buf += chunk
+            line, _, c.buf = c.buf.partition(b"\n")
+            line = line.rstrip(b"\r")
+            if not started:
+                started = line.startswith(b"205")
+                continue
+            if not line:
+                return out
+            m = _CLIP_RAW.match(line)
+            if m:
+                out[int(m.group(1))] = m.group(2)
+    finally:
+        c.close()
+
+
+def remove_from_timeline(host, port, clip_id, timeout=5):
+    """`clips remove` : retire un clip de la LISTE DE LECTURE (timeline), pas du disque.
+    Provisoire : la machine reconstruit sa liste en relisant le disque."""
+    c = _Conn(host, port or PORT, timeout)
+    try:
+        c.block(timeout)
+        code, text, _ = c.command("clips remove: clip id: %d" % int(clip_id), timeout)
+        return code, text
+    finally:
+        c.close()

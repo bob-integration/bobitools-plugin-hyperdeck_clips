@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs, unquote
 
 import csvlist
+import deck
 import engine
 import media
 import store
@@ -611,9 +612,15 @@ class Handler(BaseHTTPRequestHandler):
         name = body.get("name") or ""
         sc = engine.last_scan(pid)
         files = (sc or {}).get("ftp", {}).get("files") or []
-        if name not in files:
-            raise _err(404, "fichier absent du dernier relevé : relancez une vérification")
         p = _player(pid)
+        if name not in files:
+            ghosts = ((engine.evaluate(p, sc) if sc else {}).get("order") or {}).get("ghosts") or []
+            if name in ghosts:
+                if body.get("mode") == "timeline":
+                    return self._unlist(p, name)
+                job = engine.enqueue(pid, "ghost", num=None, remote=name, by=self._user())
+                return self._send(200, {"ok": True, "job": job})
+            raise _err(404, "fichier absent du dernier relevé : relancez une vérification")
         num = store.num_of(name)
         if num and any(s["num"] == num for s in p["slots"]):
             ev = engine.evaluate(p, sc)
@@ -622,6 +629,23 @@ class Handler(BaseHTTPRequestHandler):
                                 "(il sera remplacé par un bouche-trou)" % num)
         job = engine.enqueue(pid, "delete", num=None, remote=name, by=self._user())
         return self._send(200, {"ok": True, "job": job})
+
+    def _unlist(self, p, name):
+        """Retrait PROVISOIRE de la liste de lecture (TCP 9993), sans toucher au disque :
+        remet les rangs d'aplomb tout de suite, jusqu'à ce que le HyperDeck relise sa carte."""
+        port = p.get("tcp_port") or deck.PORT
+        try:
+            ids = [cid for cid, b in deck.raw_clip_names(p["host"], port).items()
+                   if engine._nfc(deck.strip_ext(b.decode("utf-8", "replace"))) == engine._nfc(deck.strip_ext(name))]
+            if len(ids) != 1:
+                raise _err(409, "le HyperDeck ne liste plus ce clip (ou plusieurs fois) : relancez une vérification")
+            code, text = deck.remove_from_timeline(p["host"], port, ids[0])
+        except deck.DeckError as e:
+            raise _err(502, "HyperDeck (TCP 9993) : %s" % e)
+        if code >= 300:
+            raise _err(502, "le HyperDeck refuse de retirer le clip de sa liste : %d %s" % (code, text))
+        engine._changed(p["id"])
+        return self._send(200, {"ok": True, "unlisted": ids[0]})
 
     def _test(self, pid, body):
         import deck

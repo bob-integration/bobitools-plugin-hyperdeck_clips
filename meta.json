@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.4",
+   "date": "2026-11-16",
+   "notes": "Fichier bloquant sur la carte (lu par le HyperDeck, invisible à son FTP) : annoncé en TITRE rouge « ACTION MANUELLE REQUISE », onglet du lecteur « action manuelle requise », encadré avec les gestes à faire (carte sur un ordinateur, ou formatage + « Combler les vides ») AVANT la liste des rangs décalés. Bouton « Réessayer de le supprimer » : l'outil tente la suppression sous chaque écriture possible du nom (octets exacts donnés par le HyperDeck, accents composés/décomposés, Latin-1). Bouton « Le retirer de la liste de lecture (provisoire) » (clips remove, TCP 9993) : rangs justes tout de suite, jusqu'à la prochaine relecture du disque."
+  },
+  {
    "version": "0.9.3",
    "date": "2026-11-16",
    "notes": "CORRECTIF terrain (Play 2) : un clip dont le nom porte un accent écrit par un Mac (« à » décomposé) était reçu et lu par le HyperDeck mais ABSENT de sa liste FTP et impossible à supprimer par FTP : l'outil retirait alors le bouche-trou, croyait l'emplacement vide, et le clip fantôme décalait tous les rangs suivants. Désormais : 1) le nom d'un clip livré est toujours en ASCII (accents translittérés : « à » → « a ») ; 2) un fichier reçu qui n'apparaît pas au FTP est retiré aussitôt et l'ancien clip de l'emplacement est CONSERVÉ (erreur explicite) ; 3) un clip lu par le HyperDeck mais invisible à son FTP est signalé comme tel, avec le seul remède (carte sur un ordinateur), au lieu de « hors liste »."

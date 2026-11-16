@@ -210,3 +210,14 @@
   .hc-body { grid-template-columns: 1fr; }
   .hc-side { position: static; max-height: none; order: -1; }
 }
+
+/* Fichier fantôme : la cause, en clair, avant la conséquence. */
+.hc-ghost { margin: 10px 0 12px; padding: 12px 14px; border: 1px solid var(--status-stopped-fg); border-radius: 8px; font-size: 15px; line-height: 1.45; }
+.hc-ghost p { margin: 0 0 8px; }
+.hc-ghost ol { margin: 0 0 8px 1.3em; padding: 0; }
+.hc-ghost-name { font-size: 16px; font-weight: 600; }
+.hc-ghost-btns { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+.hc-ghost-then { margin: 4px 0 2px; opacity: .75; }
+.hc-verdict.manual { border-width: 2px; }
+.hc-verdict.manual .hc-v-sum strong { color: var(--status-stopped-fg); }
+.hc-ghost { border-color: var(--status-stopped-fg); }

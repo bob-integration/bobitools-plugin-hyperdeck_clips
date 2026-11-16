@@ -455,6 +455,8 @@ def _worker(pid):
                 _render(j, p)
             if j["kind"] == "delete":
                 _delete_remote(j, p)
+            elif j["kind"] == "ghost":
+                _delete_ghost(j, p)
             elif j["kind"] == "rename":
                 _rename_placeholder(j, p)
             elif j["kind"] == "move":
@@ -1131,6 +1133,64 @@ def _delete_remote(j, p):
             raise RuntimeError("le HyperDeck a répondu « %s » mais le fichier est toujours là" % resp)
     finally:
         _close(ftp)
+
+
+def _ghost_candidates(name, raw):
+    """Toutes les écritures plausibles du nom sur la carte, en octets : celle que donne le
+    HyperDeck (brute), puis accents composés / décomposés en UTF-8, puis Latin-1."""
+    out = []
+    forms = [raw] if raw else []
+    for form in ("NFC", "NFD"):
+        forms.append(unicodedata.normalize(form, name).encode("utf-8"))
+    try:
+        forms.append(unicodedata.normalize("NFC", name).encode("latin-1"))
+    except UnicodeEncodeError:
+        pass
+    for b in forms:
+        if b not in out:
+            out.append(b)
+    return out
+
+
+def _delete_ghost(j, p):
+    """Clip lu par le HyperDeck mais INVISIBLE à son FTP (FAIT TERRAIN 2026-11-16 : accent
+    décomposé d'un Mac). On tente la suppression sous chaque écriture possible du nom, dans
+    une session FTP neuve à chaque fois (un refus peut laisser le serveur dans un état
+    bizarre), octets envoyés tels quels. Échec = message qui dit quoi faire, sans détour."""
+    name = j["remote"]
+    _wait_air(j, p, [name])
+    raw = None
+    try:
+        for cid, b in deck.raw_clip_names(p["host"], p.get("tcp_port") or deck.PORT).items():
+            if _nfc(deck.strip_ext(b.decode("utf-8", "replace"))) == _nfc(deck.strip_ext(name)):
+                raw = b
+                break
+    except Exception as e:
+        _log(j, "lecture du nom brut impossible (%s) : on essaie les écritures usuelles" % e)
+    replies = []
+    for b in _ghost_candidates(name, raw):
+        ftp = ftp_open(p)
+        try:
+            ftp.encoding = "latin-1"            # octets passés TELS QUELS
+            arg = b.decode("latin-1")
+            try:
+                r = ftp.sendcmd("DELE " + arg)
+            except ftplib.all_errors as e:
+                r = str(e).strip()
+            _log(j, "DELE %r → %s" % (b, r))
+            replies.append(r)
+            if r[:1] == "2":
+                ftp.encoding = "utf-8"
+                _fresh_listing(p["id"], ftp_names(ftp))
+                _log(j, "fichier supprimé ; le HyperDeck relit son disque, la liste se met à jour")
+                return
+        finally:
+            _close(ftp)
+    raise FtpStepError("Suppression", name, replies[-1] if replies else "", "hyperdeck",
+                       "le FTP du HyperDeck refuse de supprimer « %s » sous toutes ses écritures "
+                       "(%s). Il faut retirer ce fichier hors de l'outil : carte sur un ordinateur "
+                       "(supprimer ce seul fichier), ou formatage de la carte depuis le HyperDeck "
+                       "puis « Combler les vides »." % (name, " / ".join(r for r in replies if r) or "sans réponse"))
 
 
 # ── Vérification ────────────────────────────────────────────────────────────
