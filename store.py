@@ -17,6 +17,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 FILE = os.path.join(DATA_DIR, "players.json")
@@ -174,10 +175,24 @@ def num_of(filename):
     return m.group(1) if m else None
 
 
+def ascii_name(name):
+    """Nom SANS accent ni caractère non ASCII. FAIT TERRAIN (2026-11-16, HyperDeck Studio HD
+    Plus) : un nom venu d'un Mac (accent DÉCOMPOSÉ, « a » + accent grave) est accepté au STOR,
+    lu par le HyperDeck… mais absent de la liste FTP et impossible à supprimer par FTP (DELE →
+    451/550). Le clip bloque alors la liste jusqu'au passage de la carte sur un ordinateur.
+    Le nom d'un clip livré ne sert à personne (l'exploitant rappelle par RANG) : on ne prend
+    aucun risque, tout ce qui n'est pas ASCII imprimable est translittéré ou remplacé."""
+    n = unicodedata.normalize("NFKD", str(name or ""))
+    n = "".join(c for c in n if not unicodedata.combining(c))
+    n = n.replace("œ", "oe").replace("Œ", "OE").replace("æ", "ae").replace("Æ", "AE").replace("ß", "ss")
+    return "".join(c if 32 <= ord(c) < 127 else "_" for c in n)
+
+
 def delivered_name(num, original):
     """« 104 - Interview Dupont v2.mov ». Un nom qui porte DÉJÀ ce numéro en tête (fichier
-    relu sur le HyperDeck, clip de test de generer_clips.py) n'est pas préfixé deux fois."""
-    o = clean(os.path.basename(original or "clip.mov"))
+    relu sur le HyperDeck, clip de test de generer_clips.py) n'est pas préfixé deux fois.
+    Toujours en ASCII, cf. `ascii_name`."""
+    o = clean(ascii_name(os.path.basename(original or "clip.mov")))
     m = _NUM_PREFIX.match(o)
     if m and m.group(1) == num:
         o = o[m.end():]

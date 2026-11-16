@@ -31,6 +31,7 @@ import secrets
 import select
 import threading
 import time
+import unicodedata
 import traceback
 
 import deck
@@ -653,6 +654,21 @@ def _swap_direct(j, p):
             if final not in olds:
                 _cleanup_temp(p, final)
             raise
+        # Le fichier reçu doit APPARAÎTRE au FTP avant qu'on touche à l'ancien : sinon on
+        # retirerait le clip en place pour un fichier qu'on ne peut ni voir ni retirer.
+        if final not in ftp_names(ftp):
+            gone = False
+            try:
+                ftp_delete(ftp, final)
+                gone = final not in ftp_names(ftp)
+            except ftplib.all_errors:
+                pass
+            raise RuntimeError(
+                "le HyperDeck a reçu « %s » mais son FTP ne le liste pas. L'ancien fichier de "
+                "l'emplacement %s est conservé. %s" % (final, num,
+                    "Le fichier reçu a été retiré." if gone else
+                    "Le fichier reçu N'A PAS PU être retiré : s'il apparaît dans la liste du "
+                    "HyperDeck, il faut le supprimer en passant la carte sur un ordinateur."))
     finally:
         _close(ftp)
     if olds:
@@ -1287,6 +1303,12 @@ def evaluate(p, sc):
                 bad += 1
         known = {deck.strip_ext(f) for e in out["slots"].values() for f in e["files"]}
         extra = [c["name"] for c in clips if deck.strip_ext(c["name"]) not in known]
+        # Clips que le HyperDeck lit mais que son FTP ne liste PAS (nom mal formé : accent
+        # décomposé d'un Mac…) : l'outil ne peut ni les voir ni les retirer. On le DIT, avec
+        # le seul remède connu, plutôt que « hors liste » + un bouton qui échouerait.
+        on_disk = {_nfc(deck.strip_ext(f)) for f in sc["ftp"].get("files") or []} \
+            if sc and sc["ftp"].get("ok") else None
+        ghosts = [n for n in extra if on_disk is not None and _nfc(deck.strip_ext(n)) not in on_disk]
         count = d.get("clips_count") if d.get("clips_count") is not None else len(clips)
         tr = d.get("transport") or {}
         ok = bad == 0 and count == len(slots) and not extra
@@ -1315,11 +1337,15 @@ def evaluate(p, sc):
                          "rank": e.get("rank"), "expected": e["rank_expected"]})
         out["order"] = {"ok": ok,
                         "expected": len(slots), "count": count, "misplaced": bad,
-                        "extra": extra, "gaps": gaps, "status": tr.get("status"),
+                        "extra": extra, "ghosts": ghosts, "gaps": gaps, "status": tr.get("status"),
                         "clip_id": tr.get("clip id"), "slot_id": tr.get("slot id"),
                         "settling": (not ok) and settling(p["id"]),
                         "since_change": round(time.time() - _last_change[p["id"]]) if p["id"] in _last_change else None}
     return out
+
+
+def _nfc(s):
+    return unicodedata.normalize("NFC", s or "")
 
 
 def fill_plan(p, sc, redo=False):

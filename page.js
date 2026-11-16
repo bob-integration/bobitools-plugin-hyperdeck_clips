@@ -302,8 +302,11 @@ window.BTTools.hyperdeck_clips = (function () {
         });
         if (gaps.length > 6) lines.push("<li>… et " + (gaps.length - 6) + " autre(s)</li>");
         const staleNames = new Set(gaps.flatMap((g) => g.kind === "stale" ? g.deck : []));
-        const extra = (o.extra || []).filter((n) => !staleNames.has(n));
+        const ghosts = new Set(o.ghosts || []);
+        const extra = (o.extra || []).filter((n) => !staleNames.has(n) && !ghosts.has(n));
         if (extra.length) lines.push("<li>hors liste, vu par le HyperDeck : " + extra.slice(0, 4).map(q).join(", ") + (extra.length > 4 ? "…" : "") + "</li>");
+        ghosts.forEach((n) => lines.push("<li>" + q(n) + " : lu par le HyperDeck mais <strong>invisible à son FTP</strong> (nom mal formé, souvent un accent écrit par un Mac). "
+            + "L'outil ne peut pas le retirer : sortez la carte, supprimez ce fichier depuis un ordinateur, remettez la carte.</li>"));
         if (o.count !== o.expected) lines.push("<li>le HyperDeck compte <strong>" + o.count + "</strong> clips pour " + o.expected + " attendus</li>");
         const head = o.settling
             ? "<strong>⟳ Le HyperDeck n'a pas encore pris en compte le dernier changement.</strong> Il relit son disque après chaque transfert ; nouvelle vérification automatique dans quelques secondes."
