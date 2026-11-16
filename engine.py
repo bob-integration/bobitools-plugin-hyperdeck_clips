@@ -1368,7 +1368,8 @@ def evaluate(p, sc):
         # le seul remède connu, plutôt que « hors liste » + un bouton qui échouerait.
         on_disk = {_nfc(deck.strip_ext(f)) for f in sc["ftp"].get("files") or []} \
             if sc and sc["ftp"].get("ok") else None
-        ghosts = [n for n in extra if on_disk is not None and _nfc(deck.strip_ext(n)) not in on_disk]
+        cand = [n for n in extra if on_disk is not None and _nfc(deck.strip_ext(n)) not in on_disk]
+        ghosts = _confirmed_ghosts(p["id"], cand, sc)
         count = d.get("clips_count") if d.get("clips_count") is not None else len(clips)
         tr = d.get("transport") or {}
         ok = bad == 0 and count == len(slots) and not extra
@@ -1402,6 +1403,30 @@ def evaluate(p, sc):
                         "settling": (not ok) and settling(p["id"]),
                         "since_change": round(time.time() - _last_change[p["id"]]) if p["id"] in _last_change else None}
     return out
+
+
+# Un clip listé par le HyperDeck et absent du FTP n'est PAS forcément un fantôme : juste
+# après un envoi ou une suppression, le HyperDeck liste encore l'ANCIEN fichier quelques
+# secondes (relecture différée), et pendant un transfert le listing FTP est celui d'avant.
+# Retour utilisateur 0.9.4 : « action manuelle » affichée plusieurs fois pendant des imports.
+# On ne l'annonce donc qu'après persistance : vu absent du FTP, hors fenêtre de relecture,
+# sans transfert en cours ni listing en cache, pendant GHOST_AFTER secondes d'affilée.
+GHOST_AFTER = 120
+_ghost_seen = {}            # pid → {nom: premier instant où il remplit TOUTES les conditions}
+
+
+def _confirmed_ghosts(pid, cand, sc):
+    seen = _ghost_seen.setdefault(pid, {})
+    if not cand or settling(pid) or sc["ftp"].get("cached"):
+        seen.clear()            # tout transfert ou relecture remet le compteur à zéro
+        return []
+    now = time.time()
+    for n in list(seen):
+        if n not in cand:
+            del seen[n]
+    for n in cand:
+        seen.setdefault(n, now)
+    return [n for n in cand if now - seen[n] >= GHOST_AFTER]
 
 
 def _nfc(s):

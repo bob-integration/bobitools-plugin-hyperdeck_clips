@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.5",
+   "date": "2026-11-16",
+   "notes": "« ACTION MANUELLE REQUISE » ne s'affiche plus à tort pendant les imports. 0.9.4 prenait pour un fichier bloquant tout clip listé par le HyperDeck et absent du FTP, or c'est l'état NORMAL juste après un envoi (le HyperDeck liste encore l'ancien fichier le temps de relire sa carte) et pendant un transfert (listing FTP d'avant). Désormais l'alerte exige que l'écart persiste 2 min d'affilée, hors fenêtre de relecture, sans transfert en cours ni listing en cache ; tout transfert remet le compteur à zéro. Avant cela, l'écart reste présenté comme « mise à jour en cours »."
+  },
+  {
    "version": "0.9.4",
    "date": "2026-11-16",
    "notes": "Fichier bloquant sur la carte (lu par le HyperDeck, invisible à son FTP) : annoncé en TITRE rouge « ACTION MANUELLE REQUISE », onglet du lecteur « action manuelle requise », encadré avec les gestes à faire (carte sur un ordinateur, ou formatage + « Combler les vides ») AVANT la liste des rangs décalés. Bouton « Réessayer de le supprimer » : l'outil tente la suppression sous chaque écriture possible du nom (octets exacts donnés par le HyperDeck, accents composés/décomposés, Latin-1). Bouton « Le retirer de la liste de lecture (provisoire) » (clips remove, TCP 9993) : rangs justes tout de suite, jusqu'à la prochaine relecture du disque."
