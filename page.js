@@ -597,7 +597,12 @@ window.BTTools.hyperdeck_clips = (function () {
             const r = await precheck(file);
             if (r && r.readable && !r.ok) {
                 if (r.fixable_field_order) {
-                    const ok = await confirmDlg("Ordre de trame à corriger", fieldOrderText(file.name, r.problems), "Corriger l'en-tête et envoyer");
+                    // Dépôt groupé : UNE question pour tous les fichiers du lot dans le même cas.
+                    const b = opts.batch;
+                    const ask = () => confirmDlg("Ordre de trame à corriger", fieldOrderText(file.name, r.problems)
+                        + (b ? "<p><strong>Ce dépôt compte plusieurs fichiers :</strong> la réponse vaudra pour tous ceux qui ont le même défaut d'en-tête.</p>" : ""),
+                        b ? "Corriger les en-têtes et envoyer" : "Corriger l'en-tête et envoyer");
+                    const ok = await (b ? (b.fieldFix = b.fieldFix || ask()) : ask());
                     if (!ok) { finish(u, "failed", "abandonné"); return; }
                     u.fix = true;
                 } else {
@@ -802,9 +807,8 @@ window.BTTools.hyperdeck_clips = (function () {
         };
         msg("Dépôt de " + files.length + " fichier(s)", "", [{
             label: "Déposer", cls: "btn-green",
-            fn: () => plan().filter((r) => r.s).forEach((r) => queueFile(r.s.num, r.f, { quiet: true })),
-        }]);
-        draw();
+            fn: () => { const batch = {}; plan().filter((r) => r.s).forEach((r) => queueFile(r.s.num, r.f, { quiet: true, batch })); },
+        }], draw);
     }
 
     // Surlignage pendant le survol : le navigateur donne le NOMBRE de fichiers (pas leurs
@@ -836,29 +840,50 @@ window.BTTools.hyperdeck_clips = (function () {
     }
 
     // ── Dialogues génériques ──────────────────────────────────
-    function msg(title, html, actions) {
+    // Fenêtre de message UNIQUE, donc file d'attente : un dépôt de plusieurs fichiers
+    // lance leurs contrôles en parallèle, et chaque fenêtre ouverte par-dessus la
+    // précédente la fermait — le « close » valait alors « Annuler » pour TOUS les
+    // fichiers en attente de réponse (retour terrain 2026-11-17). Ici chaque fenêtre
+    // attend que la précédente soit refermée ; `onShow` prépare son contenu une fois
+    // affichée. Renvoie une promesse : true si un bouton d'action a été choisi.
+    const dlgQueue = [];
+    let dlgCur = null, dlgBound = false;
+    function msg(title, html, actions, onShow) {
+        return new Promise((res) => {
+            dlgQueue.push({ title, html, actions: actions || [], onShow, res, chosen: null });
+            if (!dlgCur) nextDlg();
+        });
+    }
+    function nextDlg() {
         const d = $("#hc-msg-dlg");
-        $("#hc-msg-title").textContent = title;
-        $("#hc-msg-body").innerHTML = html;
+        if (!dlgBound) {
+            dlgBound = true;
+            d.addEventListener("close", () => {
+                const it = dlgCur;
+                if (!it) return;
+                dlgCur = null;
+                try { if (it.chosen) it.chosen.fn(); } finally { it.res(!!it.chosen); nextDlg(); }
+            });
+        }
+        const it = dlgQueue.shift();
+        if (!it || !alive) { dlgQueue.length = 0; return; }
+        dlgCur = it;
+        $("#hc-msg-title").textContent = it.title;
+        $("#hc-msg-body").innerHTML = it.html;
         const f = $("#hc-msg-actions");
         f.innerHTML = '<span class="hc-spacer"></span>';
-        (actions || []).forEach((a) => {
+        it.actions.forEach((a) => {
             const b = document.createElement("button");
             b.type = "button"; b.className = "btn " + (a.cls || ""); b.textContent = a.label;
-            b.onclick = () => { d.close(); a.fn(); };
+            b.onclick = () => { it.chosen = a; d.close(); };
             f.appendChild(b);
         });
-        if (d.open) d.close();
         d.showModal();
-        return d;
+        if (it.onShow) it.onShow(d);
     }
 
     function confirmDlg(title, html, label) {
-        return new Promise((resolve) => {
-            let done = false;
-            const d = msg(title, html, [{ label, cls: "btn-green", fn: () => { done = true; resolve(true); } }]);
-            d.addEventListener("close", () => { if (!done) resolve(false); }, { once: true });
-        });
+        return msg(title, html, [{ label, cls: "btn-green", fn: () => {} }]);
     }
 
     // ── Réglages d'un lecteur ─────────────────────────────────
@@ -1206,7 +1231,8 @@ window.BTTools.hyperdeck_clips = (function () {
         html += '<p class="hc-note">Chaque clip est échangé un par un, comme une livraison : la liste garde tous ses rangs pendant l\'opération, '
             + "et un clip en cours de lecture n'est pas retiré avant la fin. Les fichiers effacés du HyperDeck ne sont pas récupérables ; l'historique est conservé.</p>"
             + '<label class="hc-grid"><span>Tapez <strong>' + esc(name) + '</strong> pour confirmer</span><input id="hc-reset-confirm" autocomplete="off"></label>';
-        const d = msg(title, html, [{
+        let typed = "";
+        msg(title, html, [{
             label: intro ? "Tout remplacer par des bouche-trous au nouveau format" : "Tout remettre en bouche-trous", cls: "btn-red",
             fn: async () => {
                 const foreign = !!(document.getElementById("hc-reset-foreign") || {}).checked;
@@ -1216,13 +1242,13 @@ window.BTTools.hyperdeck_clips = (function () {
                     await loadView(); schedule();
                 } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
             },
-        }]);
-        let typed = "";
-        const go = d.querySelector("#hc-msg-actions .btn-red");
-        go.disabled = true;
-        const inp = d.querySelector("#hc-reset-confirm");
-        inp.addEventListener("input", () => { typed = inp.value; go.disabled = inp.value !== name || plan.busy > 0; });
-        inp.focus();
+        }], (d) => {
+            const go = d.querySelector("#hc-msg-actions .btn-red");
+            go.disabled = true;
+            const inp = d.querySelector("#hc-reset-confirm");
+            inp.addEventListener("input", () => { typed = inp.value; go.disabled = inp.value !== name || plan.busy > 0; });
+            inp.focus();
+        });
     }
 
     // ── Déplacer un clip d'une case à l'autre ─────────────────
@@ -1387,7 +1413,7 @@ window.BTTools.hyperdeck_clips = (function () {
             finally { b.disabled = false; }
         };
         $("#hc-fill").onclick = () => fill(false);
-        $("#hc-reset").onclick = resetFlow;
+        $("#hc-reset").onclick = () => resetFlow();     // pas l'événement en guise d'introduction
         $("#hc-list-btn").onclick = openList;
         $("#hc-list-apply").onclick = applyList;
         $("#hc-csv-example").onclick = exampleCsv;

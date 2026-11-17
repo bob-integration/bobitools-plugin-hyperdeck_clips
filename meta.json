@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.11",
+   "date": "2026-11-17",
+   "notes": "Dépôt de PLUSIEURS fichiers à l'ordre de trame mal déclaré : ils étaient tous abandonnés même en cliquant « Corriger » (les questions s'ouvraient en même temps dans la même fenêtre, et chaque nouvelle fermait la précédente, ce qui valait « Annuler »). Les fenêtres de message passent désormais une par une (file d'attente), et un dépôt groupé ne pose qu'UNE question d'ordre de trame, valable pour tous ses fichiers. Corrigé aussi : le bouton « Fin de tournage… » affichait le titre « Changement de format » et un texte parasite « [object MouseEvent] » (depuis 0.9.8)."
+  },
+  {
    "version": "0.9.10",
    "date": "2026-11-17",
    "notes": "Rubrique de navigation renommée « Lecteurs / Enregistreurs » (au lieu de « Enregistreurs »), commune aux outils hyperdeck et hyperdeck_clips."
