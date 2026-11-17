@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.8",
+   "date": "2026-11-17",
+   "notes": "Changement du FORMAT d'un lecteur : l'outil propose aussitôt de remplacer TOUS les fichiers de la carte (clips livrés compris, et fichiers hors liste) par des bouche-trous au nouveau format, avec le plan relu sur la machine et confirmation par le nom du lecteur (même geste que « Fin de tournage »). Raison : le HyperDeck ne liste ensemble que des clips d'un même format ; des fichiers restés dans l'ancien format rendent la liste incomplète. Nouvelle alerte permanente « N clip(s) livré(s) dans un autre format que celui du lecteur », avec le même bouton."
+  },
+  {
    "version": "0.9.7",
    "date": "2026-11-17",
    "notes": "Disque du SERVEUR : la fabrication d'un bouche-trou vérifie d'abord la place (majorant ≈ 52 Mo par seconde de bouche-trou + 256 Mo de réserve) ; « Combler les vides » est refusé d'emblée (507) si un seul bouche-trou ne tient pas, avec un message qui dit quoi faire. Messages d'échec de ffmpeg en clair : « disque du serveur plein » au lieu de « No space left on device », sinon « erreur de l'outil de traitement vidéo du serveur » avec le texte brut seulement en détail technique. Ordre de trame « tb »/« bt » nommé « ordre de trame mal déclaré » au lieu de « entrelacé (tb) »."

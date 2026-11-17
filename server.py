@@ -72,7 +72,16 @@ def _view(p):
     slots = []
     for s in p["slots"]:
         e = ev["slots"][s["num"]]
-        slots.append(dict(s, **e, file=p["files"].get(s["num"]),
+        rec = p["files"].get(s["num"]) or {}
+        # Clip livré dans un AUTRE format que celui du lecteur (réglage changé depuis) : le
+        # HyperDeck ne liste ensemble que des clips d'un même format → liste incomplète.
+        other = False
+        if rec.get("kind") == "clip" and rec.get("summary") and e["status"] == "delivered":
+            try:
+                other = not media.check(rec["summary"], p["format"])["ok"]
+            except Exception:
+                other = False
+        slots.append(dict(s, **e, file=p["files"].get(s["num"]), other_format=other,
                           history=p["history"].get(s["num"], []),
                           placeholder_name=engine.ph_name(p, s),
                           job=active.get(s["num"])))

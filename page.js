@@ -350,6 +350,14 @@ window.BTTools.hyperdeck_clips = (function () {
                 + " et décalent les rangs s'ils se classent avant un emplacement :<ul>"
                 + a.foreign.map((n) => '<li><span class="hc-mono">' + esc(n) + "</span>" + del(n) + "</li>").join("") + "</ul></div>");
         }
+        const other = view.slots.filter((s) => s.other_format), stalePh = view.slots.filter((s) => s.status === "stale_placeholder");
+        if (other.length) {
+            out.push('<div class="hc-alert bad"><strong>' + other.length + " clip(s) livré(s) dans un autre format que celui du lecteur</strong> ("
+                + esc(view.format_label) + ") : le HyperDeck ne les liste pas avec les autres, la liste est incomplète.<ul>"
+                + other.map((s) => "<li><strong>" + esc(s.num) + "</strong> : " + esc((s.file && s.file.summary && s.file.summary.label) || "?") + "</li>").join("") + "</ul>"
+                + (canReset ? '<button class="btn" type="button" data-format-reset>Tout remplacer par des bouche-trous au format du lecteur…</button>' : "")
+                + (stalePh.length ? ' <span class="hc-note">(et ' + stalePh.length + " bouche-trou(s) à refaire)</span>" : "") + "</div>");
+        }
         const dups = view.slots.filter((s) => s.status === "duplicate");
         if (dups.length) {
             out.push('<div class="hc-alert bad"><strong>Numéros en double</strong> — gardez un seul fichier par numéro :<ul>'
@@ -902,7 +910,11 @@ window.BTTools.hyperdeck_clips = (function () {
                 await ctx.api("players/" + pid, { method: "PUT", body });
                 $("#hc-set-dlg").close();
                 await loadView();
-                if (styleChanged && view.slots.length && canDeliver) {
+                if (before !== JSON.stringify(body.format) && view.slots.length && canReset) {
+                    await ctx.api("players/" + pid + "/scan", { method: "POST", body: {} }).catch(() => {});
+                    await loadView();
+                    await resetFlow(FORMAT_INTRO(view.format_label));
+                } else if (styleChanged && view.slots.length && canDeliver) {
                     await ctx.api("players/" + pid + "/scan", { method: "POST", body: {} }).catch(() => {});
                     await loadView();
                     const stale = view.slots.filter((s) => s.status === "stale_placeholder").length;
@@ -1144,11 +1156,20 @@ window.BTTools.hyperdeck_clips = (function () {
         } catch (e) { if (!e.rightsShown) toast(e.message, "error"); }
     }
 
+    // Format du lecteur changé : le HyperDeck ne liste ENSEMBLE que des clips d'un même
+    // format. Garder des fichiers de l'ancien format = une liste où il en manque une partie
+    // (retour utilisateur 2026-11-16 : « bloqué avec des fichiers différents »).
+    const FORMAT_INTRO = (label) => '<div class="hc-alert bad"><p><strong>Le format du lecteur est maintenant : ' + esc(label) + ".</strong></p>"
+        + "<p>Le HyperDeck ne liste ensemble que des clips d'un même format : les fichiers restés dans l'ancien format disparaîtraient de sa liste, "
+        + "ou en cacheraient une partie, et les rangs ne correspondraient plus.</p>"
+        + "<p>Il faut donc retirer TOUS les fichiers déjà sur la carte, clips livrés compris, et les remplacer par des bouche-trous au nouveau format. "
+        + "Les clips devront ensuite être relivrés au nouveau format. Pensez aussi à régler le HyperDeck lui-même sur ce format.</p></div>";
+
     // ── Fin de tournage ───────────────────────────────────────
     // Tous les emplacements repassent au bouche-trou. Plan relu sur la machine, puis
     // confirmation en tapant le nom du lecteur : un geste qui vide la machine ne doit pas
     // pouvoir partir d'un clic malheureux.
-    async function resetFlow() {
+    async function resetFlow(intro) {
         let plan;
         try { plan = (await ctx.api("players/" + pid + "/reset", { method: "POST", body: {} })).plan; }
         catch (e) { if (!e.rightsShown) toast(e.message, "error"); return; }
@@ -1158,10 +1179,13 @@ window.BTTools.hyperdeck_clips = (function () {
         const lab = { delivered: "clip(s) livré(s)", foreign_file: "fichier(s) non suivi(s)", stale_placeholder: "bouche-trou(s) périmé(s)",
             missing: "emplacement(s) sans fichier", duplicate: "emplacement(s) en double" };
         let html = "";
+        const title = (intro ? "Changement de format — " : "Fin de tournage — ") + name;
         if (!n && !plan.foreign.length && !plan.temps.length) {
+            if (intro) { toast("Format modifié : rien à refaire, la carte ne porte aucun fichier dans l'ancien format", "info"); return; }
             msg("Fin de tournage — " + name, "<p>Rien à faire : les " + plan.total + " emplacements portent déjà leur bouche-trou, et aucun fichier hors liste.</p>", []);
             return;
         }
+        if (intro) html += intro;
         html += "<p>Sur <strong>" + esc(name) + "</strong>, <strong>" + n + "</strong> emplacement(s) sur " + plan.total + " vont repasser au bouche-trou :</p><ul>"
             + Object.keys(bs).map((k) => "<li>" + bs[k] + " " + esc(lab[k] || k) + "</li>").join("") + "</ul>";
         if (n) html += '<div class="hc-scroll"><table class="hc-table"><thead><tr><th>N°</th><th>Nom</th><th>Fichier retiré du HyperDeck</th></tr></thead><tbody>'
@@ -1174,8 +1198,8 @@ window.BTTools.hyperdeck_clips = (function () {
         html += '<p class="hc-note">Chaque clip est échangé un par un, comme une livraison : la liste garde tous ses rangs pendant l\'opération, '
             + "et un clip en cours de lecture n'est pas retiré avant la fin. Les fichiers effacés du HyperDeck ne sont pas récupérables ; l'historique est conservé.</p>"
             + '<label class="hc-grid"><span>Tapez <strong>' + esc(name) + '</strong> pour confirmer</span><input id="hc-reset-confirm" autocomplete="off"></label>';
-        const d = msg("Fin de tournage — " + name, html, [{
-            label: "Tout remettre en bouche-trous", cls: "btn-red",
+        const d = msg(title, html, [{
+            label: intro ? "Tout remplacer par des bouche-trous au nouveau format" : "Tout remettre en bouche-trous", cls: "btn-red",
             fn: async () => {
                 const foreign = !!(document.getElementById("hc-reset-foreign") || {}).checked;
                 try {
@@ -1253,6 +1277,7 @@ window.BTTools.hyperdeck_clips = (function () {
                     toast(ds.clear + " : bouche-trou en file", "info");
                     return loadView().then(schedule);
                 }
+                if (t.hasAttribute("data-format-reset")) return resetFlow(FORMAT_INTRO(view.format_label));
                 if (ds.ghost) {
                     if (!(await confirmDlg("Supprimer de la carte", "Supprimer définitivement « <span class=\"hc-mono\">" + esc(ds.ghost) + "</span> » de la carte du HyperDeck ?"
                         + "<br><br>Son FTP ne liste pas ce fichier : l'outil essaie toutes les écritures possibles de son nom. Si aucune ne passe, le transfert en échec dira quoi faire.", "Supprimer"))) return;
