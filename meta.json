@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.9",
+   "date": "2026-11-17",
+   "notes": "Ordre de trame : le message commence par ce que le HyperDeck ATTEND (« ce lecteur est réglé en … : son HyperDeck attend des images entrelacées trame haute en premier »), puis ce que déclare le fichier, puis les deux cas (export ffmpeg : seule l'étiquette est fausse, correction sans réencoder ; vraie trame basse : ne pas corriger, refaire l'export). Même texte dans la question au dépôt et dans l'alerte des fichiers en attente."
+  },
+  {
    "version": "0.9.8",
    "date": "2026-11-17",
    "notes": "Changement du FORMAT d'un lecteur : l'outil propose aussitôt de remplacer TOUS les fichiers de la carte (clips livrés compris, et fichiers hors liste) par des bouche-trous au nouveau format, avec le plan relu sur la machine et confirmation par le nom du lecteur (même geste que « Fin de tournage »). Raison : le HyperDeck ne liste ensemble que des clips d'un même format ; des fichiers restés dans l'ancien format rendent la liste incomplète. Nouvelle alerte permanente « N clip(s) livré(s) dans un autre format que celui du lecteur », avec le même bouton."

@@ -221,3 +221,5 @@
 .hc-verdict.manual { border-width: 2px; }
 .hc-verdict.manual .hc-v-sum strong { color: var(--status-stopped-fg); }
 .hc-ghost { border-color: var(--status-stopped-fg); }
+
+.hc-alert p { margin: 4px 0; }

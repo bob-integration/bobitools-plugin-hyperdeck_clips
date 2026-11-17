@@ -373,9 +373,8 @@ window.BTTools.hyperdeck_clips = (function () {
                 + "</div>");
         }
         (view.pending || []).forEach((x) => {
-            out.push('<div class="hc-alert"><strong>' + esc(x.num) + " — « " + esc(x.original) + " » refusé :</strong> "
-                + esc((x.check.problems || []).join(" ; "))
-                + ". Si ce fichier sort de ffmpeg, son en-tête annonce à tort la trame basse en premier : on peut le corriger sans réencoder."
+            out.push('<div class="hc-alert"><strong>' + esc(x.num) + " — « " + esc(x.original) + " » en attente :</strong> "
+                + fieldOrderText(x.original, x.check.problems)
                 + ' <button class="btn" type="button" data-fix="' + esc(x.id) + '">Corriger l\'en-tête et envoyer</button>'
                 + ' <button class="btn" type="button" data-drop-pending="' + esc(x.id) + '">Abandonner</button></div>');
         });
@@ -598,11 +597,7 @@ window.BTTools.hyperdeck_clips = (function () {
             const r = await precheck(file);
             if (r && r.readable && !r.ok) {
                 if (r.fixable_field_order) {
-                    const ok = await confirmDlg("En-tête de trame à corriger",
-                        "« " + esc(file.name) + " » annonce : " + esc(r.problems.join(" ; ")) + ".<br><br>Les fichiers ProRes entrelacés produits par <strong>ffmpeg</strong> "
-                        + "annoncent à tort la trame basse en premier alors que les images sont bien trame haute en premier. Si c'est le cas de ce fichier, "
-                        + "l'outil peut corriger l'en-tête après l'envoi, sans réencoder.<br><br>Si le fichier est réellement en trame basse, il ne faut PAS le corriger : refaites l'export.",
-                        "Corriger l'en-tête et envoyer");
+                    const ok = await confirmDlg("Ordre de trame à corriger", fieldOrderText(file.name, r.problems), "Corriger l'en-tête et envoyer");
                     if (!ok) { finish(u, "failed", "abandonné"); return; }
                     u.fix = true;
                 } else {
@@ -731,6 +726,19 @@ window.BTTools.hyperdeck_clips = (function () {
             pump();
         };
         xhr.send(u.file);
+    }
+
+    // Ordre de trame : dire D'ABORD ce que le HyperDeck attend, sinon on ne comprend pas
+    // pourquoi l'outil propose de changer quelque chose (retour utilisateur 2026-11-17).
+    function fieldOrderText(name, problems) {
+        const got = (problems || []).map((p) => (/reçu (.*)$/.exec(p) || [])[1]).filter(Boolean)[0];
+        return "<p>Ce lecteur est réglé en <strong>" + esc((view && view.format_label) || "trame haute en premier")
+            + "</strong> : son HyperDeck attend des images entrelacées <strong>trame haute en premier</strong>.</p>"
+            + "<p>L'en-tête de « " + esc(name) + " » déclare autre chose" + (got ? " : <strong>" + esc(got) + "</strong>" : "") + ".</p>"
+            + "<p><strong>Si le fichier sort de ffmpeg</strong> (ou d'un outil qui s'appuie dessus), c'est un défaut connu : les images sont bien trame haute en premier, "
+            + "seule l'étiquette est fausse. L'outil peut corriger l'étiquette sans réencoder, l'image n'est pas touchée.</p>"
+            + "<p><strong>Si le fichier a vraiment été fabriqué en trame basse</strong> (réglage d'export), ne corrigez pas : l'image tremblerait à l'antenne. "
+            + "Refaites l'export en trame haute en premier.</p>";
     }
 
     function refusal(name, problems, summary, expected) {
