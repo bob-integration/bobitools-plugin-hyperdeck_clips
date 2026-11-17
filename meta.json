@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.7",
+   "date": "2026-11-17",
+   "notes": "Disque du SERVEUR : la fabrication d'un bouche-trou vérifie d'abord la place (majorant ≈ 52 Mo par seconde de bouche-trou + 256 Mo de réserve) ; « Combler les vides » est refusé d'emblée (507) si un seul bouche-trou ne tient pas, avec un message qui dit quoi faire. Messages d'échec de ffmpeg en clair : « disque du serveur plein » au lieu de « No space left on device », sinon « erreur de l'outil de traitement vidéo du serveur » avec le texte brut seulement en détail technique. Ordre de trame « tb »/« bt » nommé « ordre de trame mal déclaré » au lieu de « entrelacé (tb) »."
+  },
+  {
    "version": "0.9.6",
    "date": "2026-11-16",
    "notes": "Carte du HyperDeck pleine : dépôt REFUSÉ. L'outil lit l'espace libre EN OCTETS annoncé par la machine (« remaining size », protocole 1.19 ; avant, une estimation par le temps d'enregistrement qui donnait ≈ 59 Go pour 127 Go réels) et refuse un fichier si sa taille + les envois déjà en file + 512 Mo de réserve dépassent la place libre : dans la page avant tout envoi, au serveur juste avant de recevoir le fichier (relu à l'instant), et au moment de partir vers le HyperDeck pour un envoi resté en file. Message : place libre, place nécessaire, que faire. Machine qui n'annonce pas ses octets : pas de blocage (estimation trop incertaine)."

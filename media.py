@@ -38,7 +38,10 @@ PRORES = {
 FIELD_LABEL = {
     "tt": "entrelacé, trame haute en premier",
     "bb": "entrelacé, trame basse en premier",
-    "tb": "entrelacé (tb)", "bt": "entrelacé (bt)",
+    # « tb »/« bt » : ordres MIXTES (trame codée en premier ≠ trame affichée en premier).
+    # « tb » est ce qu'écrit ffmpeg récent pour du trame haute : cf. le bogue plus bas.
+    "tb": "entrelacé, ordre de trame mal déclaré (« tb »)",
+    "bt": "entrelacé, ordre de trame mal déclaré (« bt »)",
     "progressive": "progressif", "unknown": "balayage inconnu", None: "balayage non déclaré",
 }
 
@@ -158,10 +161,19 @@ def check(summary, fmt, partial=False):
     return {"ok": not problems, "problems": problems, "fixable_field_order": fixable}
 
 
+def ffmpeg_error(stderr, what="fabrication"):
+    """Message d'échec de ffmpeg LISIBLE : la cause connue en clair, le texte brut de ffmpeg
+    (jargon : « lavfi », « Lavf »…) seulement en complément, entre parenthèses."""
+    raw = (stderr or "").strip()
+    if "No space left" in raw:
+        return "%s impossible : disque du serveur plein. Libérez de la place (cache des bouche-trous, transferts en cours), puis recommencez." % what
+    return "%s impossible : erreur de l'outil de traitement vidéo du serveur (détail technique : %s)" % (what, raw[-300:] or "aucun")
+
+
 def _run(cmd, timeout):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0:
-        raise RuntimeError("ffmpeg : " + (p.stderr or "échec").strip()[-300:])
+        raise RuntimeError(ffmpeg_error(p.stderr, "fabrication du bouche-trou"))
 
 
 def fix_field_order(src, dst, order="tt", timeout=1800):
@@ -170,7 +182,7 @@ def fix_field_order(src, dst, order="tt", timeout=1800):
                         "-map", "0", "-c", "copy", "-field_order", order, "-f", "mov", dst],
                        capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or "ffmpeg a échoué").strip()[-300:])
+        raise RuntimeError(ffmpeg_error(p.stderr, "correction de l'en-tête"))
 
 
 # Apparence des bouche-trous, réglable par lecteur. Défaut = le visuel d'origine : fond

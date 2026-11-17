@@ -516,6 +516,9 @@ class Handler(BaseHTTPRequestHandler):
     def _fill(self, pid, body=None):
         body = body or {}
         p = _player(pid)
+        full = engine.server_room_for_placeholder(p)
+        if full and not p.get("ph_cache"):
+            raise _err(507, full, reason="no_space")
         sc = engine.scan(pid)
         if not sc["ftp"].get("ok"):
             raise _err(502, "FTP injoignable : %s" % sc["ftp"].get("error"))

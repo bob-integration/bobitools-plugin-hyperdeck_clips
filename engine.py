@@ -550,6 +550,27 @@ def clear_failed(pid):
             _jobs.pop(k, None)
 
 
+SERVER_MARGIN = 256 * 2**20     # même réserve que pour les dépôts (server.SPACE_MARGIN)
+
+
+def placeholder_need(p):
+    """Place à prévoir sur le serveur pour fabriquer UN bouche-trou : majorant large (ProRes
+    4444 XQ plein cadre ≈ 52 Mo/s ; un bouche-trou réel en fait bien moins), 64 Mo minimum."""
+    dur = float(p.get("placeholder_duration") or 2)
+    return max(64 * 2**20, int(dur * 52e6))
+
+
+def server_room_for_placeholder(p):
+    """None s'il y a la place, sinon le message de refus (disque du SERVEUR)."""
+    free = shutil.disk_usage(store.DATA_DIR).free
+    need = placeholder_need(p) + SERVER_MARGIN
+    if free >= need:
+        return None
+    return ("disque du serveur plein : %d Mo libres, il faut environ %d Mo pour fabriquer un "
+            "bouche-trou (réserve comprise). Videz le cache des bouche-trous ou attendez la fin "
+            "des transferts, puis relancez « Combler les vides »." % (free >> 20, need >> 20))
+
+
 def _render(j, p):
     slot = next((s for s in p["slots"] if s["num"] == j["num"]), None)
     if not slot:
@@ -562,6 +583,9 @@ def _render(j, p):
         dst = cached
         j["keep_local"] = True
     else:
+        full = server_room_for_placeholder(p)
+        if full:
+            raise RuntimeError(full)
         _log(j, "fabrication du bouche-trou")
         os.makedirs(store.WORK, exist_ok=True)
         dst = os.path.join(store.WORK, "ph_%s.mov" % j["id"])
