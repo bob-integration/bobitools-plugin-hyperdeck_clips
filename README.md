@@ -1,43 +1,79 @@
-# Clips HyperDeck (`hyperdeck_clips`)
+# Clips HyperDeck — plugin Bobi.Tools
 
-Livraison de clips sur des HyperDeck Blackmagic dont l'exploitant rappelle les clips **par
-leur rang**. Le HyperDeck classe ses clips par ordre alphabétique de nom de fichier : la
-liste doit donc toujours compter le même nombre de clips, dans le même ordre.
+Livraison de clips sur des lecteurs **Blackmagic HyperDeck** dont l'exploitant rappelle les
+clips **par leur rang** (clip 1, clip 2…), pour
+[Bobi.Tools](https://github.com/bob-integration/bobi.tools). Les fichiers arrivent par le FTP
+de la machine ; ce que la machine en voit est relu par le *HyperDeck Ethernet Protocol*
+(TCP 9993). Une même liste peut servir plusieurs lecteurs.
 
-## Principe
-- Un **lecteur** = un HyperDeck (adresse, FTP, disque) + une **liste attendue** (CSV
-  `ID;Player;Catégorie;Numéro;Nom`, seules Numéro et Nom sont obligatoires).
-- Un **emplacement** par ligne. Nom sur la machine : `<Numéro> - <nom d'origine>`
-  (`104 - Interview Dupont v2.mov`) ; emplacement vide : `<Numéro> - VIDE - <Nom>.mov`.
-- Numéros de même largeur obligatoires (sinon l'ordre alphabétique ≠ l'ordre numérique).
+Le HyperDeck classe ses clips par **ordre alphabétique de nom de fichier**. Rappeler un clip
+par son rang n'est fiable que si la liste garde toujours le même nombre de fichiers, dans le
+même ordre : tout l'outil est construit autour de cette règle.
 
-## Échange sans décalage
-1. envoi FTP sous `zzz_envoi_<id>.mov` (classé en fin de liste) ;
-2. si le HyperDeck lit le clip à retirer : attente (bouton « Forcer » possible) ;
-3. `DELE` de l'ancien puis `RNFR/RNTO` du temporaire ; repli par `STOR` direct si le
-   renommage est refusé.
+## Ce que fait l'outil
 
-## Renommage FTP refusé (HyperDeck Studio HD Pro, relevé le 2026-11-15)
-Le RNFR reçoit DEUX réponses : « 350 » puis « 550 File unavailable », pour un fichier
-présent ; aucun renommage n'a lieu. L'outil lit toutes les réponses du RNFR, essaie le
-chemin absolu, puis retient que le lecteur ne renomme pas et passe par des envois
-complets : livraison = envoi direct puis suppression de l'ancien ; déplacer/échanger =
-relecture (RETR) puis renvoi ; nom des bouche-trous = refabrication. Pendant un envoi,
-l'emplacement peut porter deux fichiers (contrepartie inévitable sans renommage).
-« Tester la connexion » refait l'essai et montre l'échange brut.
+- **Liste attendue** par lecteur, importée d'un CSV (`ID;Player;Catégorie;Numéro;Nom` ;
+  seules les colonnes Numéro et Nom sont obligatoires), exportable. Un **emplacement** par
+  ligne, nommé sur la machine `<Numéro> - <nom du fichier déposé>`.
+- **Bouche-trous** : chaque emplacement sans clip porte un fichier au format du lecteur
+  (`<Numéro> - VIDE - <Nom>` par défaut), pour que les rangs ne bougent jamais. Fixe, animé
+  (pour voir que la machine lit) ou transparent en ProRes 4444 (sortie fill & key) — les
+  trois validés sur un vrai HyperDeck.
+- **Livrer** par glisser-déposer, un fichier ou un lot (réparti selon le numéro en tête du
+  nom, ou à la suite). Le format est contrôlé **avant** l'envoi ; un clip remplacé l'est sans
+  décaler les autres ; un clip en cours de lecture n'est pas retiré avant la fin (« Forcer »
+  possible).
+- **Déplacer / échanger** deux emplacements, **combler** les vides, **fin de tournage** (tout
+  remettre en bouche-trous, en option supprimer les fichiers hors liste).
+- **Écart décrit, jamais masqué** : ce que la machine liste est comparé à la liste attendue,
+  rang par rang ; un écart dit sa cause et le geste qui le résout.
 
-## Espace du HyperDeck
-Le protocole ne donne que le temps d'enregistrement restant. L'espace libre en est
-déduit au débit du format d'enregistrement (`configuration` → `file format`, débits ProRes
-et DNx publiés), d'où le « ≈ » ; capacité = libre estimé + taille des clips (LIST quand
-le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.264/H.265).
+## À savoir
 
-## À vérifier sur une vraie machine
-- Le HyperDeck liste-t-il un fichier EN COURS d'envoi (décalage des rangs pendant l'envoi) ?
-- Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
-- Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
-- Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).
+- **Le FTP du HyperDeck ne renomme pas** (relevé sur Studio HD Pro : le `RNFR` reçoit
+  « 350 » puis « 550 »). Toute livraison est donc un envoi complet ; un déplacement relit
+  le fichier puis le renvoie. Pendant un envoi, un emplacement peut porter brièvement deux
+  fichiers.
+- **La machine relit son disque en différé** après un échange FTP : pendant environ une
+  minute et demie, un écart entre le FTP et la liste du HyperDeck est normal. L'outil
+  attend avant de conclure.
+- **Noms livrés en ASCII.** Un nom avec un accent tapé sur Mac (forme décomposée) est
+  accepté par le FTP, lu par la machine, mais invisible au FTP et impossible à supprimer à
+  distance : un « fichier fantôme » qui décale tous les rangs. L'outil retire les accents
+  avant l'envoi ; un fantôme déjà présent est annoncé en rouge « ACTION MANUELLE REQUISE »
+  (carte à vider sur un ordinateur).
+- **Ordre des trames lu dans les images.** Chaque image ProRes dit quelle trame vient en
+  premier ; c'est elle qui tranche, pas l'étiquette du conteneur. Le HyperDeck étiquette
+  lui-même la trame haute `fiel 02 09` (« tb » pour ffprobe), comme Apple ProRes : cette
+  étiquette est normale. Un fichier exporté en trame basse est refusé.
+- **Un seul format par lecteur** : le HyperDeck ne liste ensemble que des clips du même
+  format. Changer le format d'un lecteur propose de tout refaire au nouveau format.
+- **Place** : la carte du HyperDeck (octets exacts annoncés par `slot info`) et le disque du
+  serveur (chaque clip y transite en entier) sont vérifiés avant d'accepter un fichier.
+- **Droits** : livrer (`clips.deliver`), remettre à zéro (`clips.reset`), gérer les lecteurs
+  et leurs listes (`clips.manage`) ; restreignables par lecteur (Réglages → Outils →
+  Périmètres).
 
-## Dépendance cœur
-Les envois passent en `application/octet-stream` : il faut le relais par morceaux du cœur
-(`app/routes.py:_proxy_stream`). Sans lui, le corps n'arrive pas au conteneur.
+## Pas encore vérifié sur une vraie machine
+
+- Suppression d'un fichier fantôme par le réseau (`DELE` sous toutes les écritures du nom,
+  retrait provisoire de la timeline par `clips remove`).
+- Refus « carte pleine » au moment de l'envoi.
+
+## Prérequis
+
+- **Bobi.Tools** avec **Docker** : l'outil tourne en conteneur (`runtime: docker`, Alpine +
+  ffmpeg). Le cœur doit relayer les envois de fichiers par morceaux (commit « Proxy outils
+  Docker : relais par morceaux », 2026-11) : sans lui, les fichiers arrivent vides et l'outil
+  répond « cœur trop ancien ».
+- Des HyperDeck joignables en **FTP** (port 21) et sur **TCP 9993**, réglés au format des
+  clips à livrer.
+- De la place sur le serveur : chaque clip y est stocké en entier avant l'envoi.
+
+## Installation
+
+Dans Bobi.Tools : **Réglages → Outils → Catalogue**, bouton « Installer », ou import du paquet
+`.bobitool` (Réglages → Outils). Le dépôt est **privé** : l'instance doit avoir accès à
+l'organisation GitHub.
+
+L'aide complète est dans [`help.md`](help.md), affichée dans Bobi.Tools (menu « ? » → Aide).
