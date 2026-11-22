@@ -2,7 +2,7 @@
 
 Livraison de clips sur des lecteurs **Blackmagic HyperDeck** dont l'exploitant rappelle les
 clips **par leur rang** (clip 1, clip 2…), pour
-[Bobi.Tools](https://github.com/bob-integration/bobi.tools). Les fichiers arrivent par le FTP
+[Bobi.Tools](https://github.com/bob-integration/bobitools). Les fichiers arrivent par le FTP
 de la machine ; ce que la machine en voit est relu par le *HyperDeck Ethernet Protocol*
 (TCP 9993). Une même liste peut servir plusieurs lecteurs.
 
@@ -70,13 +70,14 @@ même ordre : tout l'outil est construit autour de cette règle.
 
 ## Installation
 
-Le dépôt est **privé** : l'outil n'apparaît pas dans le catalogue de Bobi.Tools, qui ne liste
-que les dépôts publics. Deux façons de l'installer :
+Dans Bobi.Tools : **Réglages → Outils → Catalogue**, bouton « Installer ». Ou, sur une machine
+neuve, en une ligne :
 
-- **par paquet** : importer le fichier `.bobitool` dans **Réglages → Outils** ;
-- **par GitHub** : une instance qui se met à jour par GitHub le reçoit avec Bobi.Tools (il en
-  est un sous-module), à condition d'avoir accès à l'organisation. Si l'outil avait été
-  installé auparavant par paquet, il est repris avec ses versions archivées — à condition que
-  l'instance tourne déjà en 1.1.0 au moment de cette mise à jour.
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/bob-integration/bobitools/main/get.sh) --outils hyperdeck_clips
+```
+
+Une instance où l'outil avait été installé par paquet (`.bobitool`) le garde tel quel ; le
+catalogue propose ensuite ses mises à jour.
 
 L'aide complète est dans [`help.md`](help.md), affichée dans Bobi.Tools (menu « ? » → Aide).

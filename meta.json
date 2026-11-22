@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.14",
+   "date": "2026-11-22",
+   "notes": "Publication : aide intégrée réécrite pour l'exploitant (mettre en place un lecteur, la liste CSV, livrer, ordre des trames, lire l'état, action manuelle requise, autres gestes, place, droits) ; README pour le dépôt public (installation depuis le Catalogue)."
+  },
+  {
    "version": "0.9.13",
    "date": "2026-11-22",
    "notes": "Exige Bobi.Tools 1.1.0 ou plus récent (`core_min`) : le cœur refuse désormais d'installer l'outil sur une instance plus ancienne, qui ne relaierait pas les envois de fichiers. README réécrit (ce que fait l'outil, faits de terrain, prérequis « Bobi.Tools 1.1.0 », installation par paquet ou par GitHub — le dépôt est privé, donc absent du catalogue public) ; description de l'outil remise à jour (l'échange par nom temporaire a disparu depuis 0.8.0)."

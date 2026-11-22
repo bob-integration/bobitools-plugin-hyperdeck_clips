@@ -1,61 +1,112 @@
-# Clips HyperDeck (`hyperdeck_clips`)
+# Clips HyperDeck — aide
 
-Livraison de clips sur des HyperDeck Blackmagic dont l'exploitant rappelle les clips **par
-leur rang**. Le HyperDeck classe ses clips par ordre alphabétique de nom de fichier : la
-liste doit donc toujours compter le même nombre de clips, dans le même ordre.
+L'outil livre des clips sur des lecteurs HyperDeck dont l'exploitant rappelle les clips
+**par leur rang** (clip 1, clip 2…). Le HyperDeck classe ses clips par **ordre alphabétique
+de nom de fichier** : pour qu'un rang désigne toujours le même clip, la carte doit toujours
+porter le même nombre de fichiers, dans le même ordre. L'outil s'en charge — à condition que
+tous les fichiers passent par lui.
 
-## Principe
-- Un **lecteur** = un HyperDeck (adresse, FTP, disque) + une **liste attendue** (CSV
-  `ID;Player;Catégorie;Numéro;Nom`, seules Numéro et Nom sont obligatoires).
-- Un **emplacement** par ligne. Nom sur la machine : `<Numéro> - <nom d'origine>`
-  (`104 - Interview Dupont v2.mov`) ; emplacement vide : `<Numéro> - VIDE - <Nom>.mov`.
-- Numéros de même largeur obligatoires (sinon l'ordre alphabétique ≠ l'ordre numérique).
+## Mettre en place un lecteur
 
-## Échange sans décalage
-1. envoi FTP sous `zzz_envoi_<id>.mov` (classé en fin de liste) ;
-2. si le HyperDeck lit le clip à retirer : attente (bouton « Forcer » possible) ;
-3. `DELE` de l'ancien puis `RNFR/RNTO` du temporaire ; repli par `STOR` direct si le
-   renommage est refusé.
+1. **+ Lecteur**, puis renseignez le nom, l'**adresse du HyperDeck**, l'accès **FTP**
+   (identifiant et mot de passe s'il y en a) et le **disque** (bouton « Parcourir… »).
+2. Réglez le **format des clips** exactement comme celui du HyperDeck (codec, image, images
+   par seconde, balayage). Le HyperDeck ne lit ensemble que des clips du même format.
+3. **Tester la connexion** vérifie le FTP et le protocole réseau de la machine.
+4. **Importer la liste (CSV)**, puis **Combler les vides** : chaque emplacement reçoit un
+   bouche-trou, et la carte porte dès lors tous ses rangs.
 
-## Renommage FTP refusé (HyperDeck Studio HD Pro, relevé le 2026-11-15)
-Le RNFR reçoit DEUX réponses : « 350 » puis « 550 File unavailable », pour un fichier
-présent ; aucun renommage n'a lieu. L'outil lit toutes les réponses du RNFR, essaie le
-chemin absolu, puis retient que le lecteur ne renomme pas et passe par des envois
-complets : livraison = envoi direct puis suppression de l'ancien ; déplacer/échanger =
-relecture (RETR) puis renvoi ; nom des bouche-trous = refabrication. Pendant un envoi,
-l'emplacement peut porter deux fichiers (contrepartie inévitable sans renommage).
-« Tester la connexion » refait l'essai et montre l'échange brut.
+## La liste (CSV)
 
-## Bouche-trous animés et transparents (0.9.0)
-- **Animé** : trois points dont l'allumé fait l'aller-retour (gauche, milieu, droite,
-  milieu…) et un compteur des secondes, pour voir que le HyperDeck lit. Tout change
-  `ANIM_STEPS` = 5 fois par seconde (aller-retour en 0,8 s : visible sur un clip de 2 s) :
-  on n'encode que ces images (segment muxer, 1 image par fichier) et la liste de
-  concaténation répète chacune autant de fois qu'il faut (cadences fractionnaires
-  comprises), par copie de flux. Coût mesuré en 1080i50 : 0,95 s pour 2 s (fixe : 0,65 s),
-  2,2 s pour 10 s. La roue de 0.9.0 (1 cran/s) était invisible sur des clips de 2 s.
-- **Transparent** (ProRes 4444 seulement, sortie fill & key) : fond transparent, cartouche
-  de la couleur de fond autour des infos. Le cadre est MESURÉ par ffmpeg (filtre `bbox` sur
-  un rendu blanc sur noir, compteur « 88 »), plus une marge. `drawbox` exige `replace=1`
-  pour écrire l'alpha ; les gris semi-transparents sont pré-mélangés au fond (sinon ils
-  perceraient la découpe). Poids : ≈ 145 Mo pour 10 s (c'est le 4444, pas l'alpha).
-- Ces options n'entrent dans l'empreinte des bouche-trous que cochées : les bouche-trous
-  déjà posés ne passent pas « périmés » à la mise à jour.
+- Colonnes `ID;Player;Catégorie;Numéro;Nom` (séparateur `;`, `,` ou tabulation). Seules
+  **Numéro** et **Nom** sont obligatoires ; Catégorie regroupe les emplacements à l'écran.
+- **Tous les numéros de la même longueur** (101, 102… 999, pas 99 et 100) : sinon l'ordre
+  alphabétique ne suit plus l'ordre des numéros. Un numéro en double est refusé.
+- « Télécharger un CSV exemple » donne un modèle ; « Exporter la liste actuelle » la
+  ressort telle quelle.
 
-## Espace du HyperDeck
-Le protocole ne donne que le temps d'enregistrement restant. L'espace libre en est
-déduit au débit du format d'enregistrement (`configuration` → `file format`, débits ProRes
-et DNx publiés), d'où le « ≈ » ; capacité = libre estimé + taille des clips (LIST quand
-le serveur n'a pas MLSD). Pas d'estimation pour un codec à débit variable (H.264/H.265).
+## Livrer un clip
 
-## À vérifier sur une vraie machine
-- Le HyperDeck liste-t-il un fichier EN COURS d'envoi (décalage des rangs pendant l'envoi) ?
-- Prise en compte d'un fichier arrivé par FTP dans `clips get` (sans re-sélection du disque).
-- Format exact des noms renvoyés par `clips get` (avec ou sans extension : les deux sont gérés).
-- Encodage UTF-8 des noms accentués (`OPTS UTF8 ON`).
-- Lecture d'un bouche-trou animé (points réguliers, compteur) et découpe d'un bouche-trou
-  ProRes 4444 transparent en sortie fill & key.
+- **Glissez le fichier sur son emplacement.** Il part sur la carte sous le nom
+  `<Numéro> - <nom du fichier>`, accents retirés.
+- **Plusieurs fichiers d'un coup** : lâchés sur une case, ils remplissent les cases
+  suivantes ; lâchés ailleurs, ils sont répartis selon le numéro en tête de leur nom
+  (« 104 - … »). Un aperçu montre où chacun ira avant de valider.
+- **Le format est contrôlé avant l'envoi.** Un fichier dans un autre format est refusé,
+  avec ce qui ne va pas et ce qui est attendu.
+- **Remplacer** un clip livré (V2, V3…) ne décale pas les autres. Si le clip est **à
+  l'antenne**, l'échange attend la fin de sa lecture (« Attente : clip à l'antenne ») ;
+  « Forcer » l'impose quand même.
 
-## Dépendance cœur
-Les envois passent en `application/octet-stream` : il faut le relais par morceaux du cœur
-(`app/routes.py:_proxy_stream`). Sans lui, le corps n'arrive pas au conteneur.
+### Ordre des trames (entrelacé)
+
+L'outil lit l'ordre des trames **dans les images** du fichier, pas dans son étiquette.
+
+- **« Étiquette de trame à corriger »** : les images sont dans le bon ordre, seule
+  l'étiquette du fichier dit autre chose. Acceptez : l'étiquette est réécrite comme
+  l'écrit le HyperDeck, sans réencoder ; l'image n'est pas touchée.
+- **Refus « ordre des trames »** : le fichier a été exporté en **trame basse (inférieure)
+  en premier**. Refaites l'export en **trame haute (supérieure) en premier** — corriger
+  l'étiquette ferait trembler l'image à l'antenne.
+
+## Lire l'état
+
+En haut, le bandeau dit si **le HyperDeck voit la liste attendue**, rang par rang.
+
+- **⟳ pas encore pris en compte** : normal juste après un envoi. Le HyperDeck relit sa
+  carte en différé (jusqu'à environ une minute et demie) ; l'outil revérifie seul.
+- **⚠ ne voit pas la liste attendue** : l'écart est décrit (rangs touchés, cause) avec le
+  geste qui le résout.
+
+États d'un emplacement :
+
+| État | Ce que ça veut dire |
+|---|---|
+| Livré | le clip est sur la carte, à son rang |
+| Vide · bouche-trou | pas de clip, le bouche-trou tient le rang |
+| MANQUANT | aucun fichier pour ce numéro : tous les rangs suivants sont décalés → « Combler les vides » |
+| DOUBLON | plusieurs fichiers pour ce numéro : rangs décalés → en garder un |
+| Bouche-trou périmé | le nom de l'emplacement a changé dans la liste → « Combler les vides » le refait |
+| Fichier non suivi | un fichier posé hors de l'outil (client FTP…) porte ce numéro |
+
+## ⚠ Action manuelle requise
+
+Quand le titre l'annonce en rouge, l'outil a trouvé un fichier qu'il **ne peut pas
+supprimer** par le réseau : typiquement un nom avec un accent tapé sur Mac, que le
+HyperDeck lit mais que son FTP ne voit pas. Il décale tous les rangs. Le cadre rouge donne
+le nom du fichier et les étapes :
+
+- retirer la carte, l'insérer dans un ordinateur et supprimer ce fichier ;
+- ou, si la carte ne porte que des bouche-trous, la formater depuis le HyperDeck ;
+- puis **Combler les vides**, et relivrer les clips concernés.
+
+L'outil retire désormais les accents avant tout envoi : ce cas ne vient que de fichiers
+posés par un autre moyen.
+
+## Autres gestes
+
+- **Déplacer** un clip vers un autre emplacement (ou l'échanger avec celui qui s'y trouve)
+  et **Retirer** un clip (son bouche-trou revient) : depuis le panneau Détails.
+- **Bouche-trous** (Réglages) : nom des fichiers, durée, pistes audio, style **fixe**,
+  **animé** (pour voir que la machine lit) ou **transparent** (ProRes 4444, sortie fill &
+  key).
+- **Fin de tournage…** remet tous les emplacements en bouche-trous et, en option, supprime
+  les fichiers hors liste. Il faut taper le nom du lecteur pour confirmer.
+- **Changer le format** d'un lecteur propose aussitôt de tout refaire au nouveau format :
+  des clips de l'ancien format resteraient invisibles.
+
+## Place
+
+- **Carte du HyperDeck** : un fichier qui ne tient pas (en comptant les envois déjà en file
+  et une réserve) est refusé avant d'être envoyé.
+- **Disque du serveur** : chaque clip y transite en entier avant d'aller au HyperDeck ; s'il
+  manque de place, l'envoi est refusé.
+
+## Droits
+
+- **Livrer des clips** : déposer, remplacer, retirer, combler les vides.
+- **Remettre à zéro en fin de tournage**.
+- **Gérer les lecteurs** : ajouter, régler, supprimer un lecteur, importer sa liste,
+  supprimer un fichier étranger.
+
+Chacun peut être restreint lecteur par lecteur (Réglages → Outils → Périmètres).
