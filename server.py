@@ -332,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     raise _err(502, str(e))
             if m == "POST" and P[2] == "precheck":
-                return self._precheck(pid)
+                return self._precheck(pid, q)
             if m == "POST" and P[2] == "slots" and P[3] and P[4] == "upload":
                 return self._upload(pid, P[3], q)
             if m == "POST" and P[2] == "slots" and P[3] and P[4] == "move":
@@ -420,19 +420,33 @@ class Handler(BaseHTTPRequestHandler):
             raise _err(507, "espace disque insuffisant sur le serveur : %d Mo libres, %d Mo nécessaires"
                        % (free // 2**20, (n + SPACE_MARGIN) // 2**20), reason="no_space")
 
-    def _precheck(self, pid):
+    def _precheck(self, pid, q=None):
+        """Corps = atomes ftyp+moov du fichier ; avec `?head=<n>` (0.9.12), ces n premiers
+        octets sont suivis du DÉBUT du fichier, où l'on lit l'ordre des trames dans la
+        première image ProRes. Sans `head` (ancienne page) : l'étiquette seule."""
         p = _player(pid)
         self._require_stream()
         os.makedirs(store.WORK, exist_ok=True)
         fd, path = tempfile.mkstemp(dir=store.WORK, suffix=".mov")
         os.close(fd)
         try:
-            self._receive(path, limit=PRECHECK_MAX)
+            n = self._receive(path, limit=PRECHECK_MAX)
+            scan = None
+            try:
+                head = int((q or {}).get("head") or 0)
+            except ValueError:
+                head = 0
+            if 0 < head < n:
+                with open(path, "r+b") as fh:
+                    fh.seek(head)
+                    scan = media.prores_scan(fh.read())
+                    fh.truncate(head)
             try:
                 info = media.probe(path)
             except Exception as e:
                 return self._send(200, {"ok": False, "readable": False, "error": str(e)})
             s = media.summarize(info)   # une erreur ici = l'outil, pas le fichier (→ 500)
+            s["scan"] = scan
             r = media.check(s, p["format"], partial=True)
             return self._send(200, dict(r, readable=True, summary=s,
                                         expected=media.format_label(p["format"])))
@@ -470,6 +484,7 @@ class Handler(BaseHTTPRequestHandler):
                        problems=["fichier illisible par ffprobe (%d octets reçus) : %s" % (n, e)])
         try:
             s = media.summarize(info)
+            s["scan"] = media.scan_file(path)      # ordre des trames lu dans les IMAGES
             r = media.check(s, p["format"])
         except Exception as e:
             os.remove(path)
@@ -503,13 +518,14 @@ class Handler(BaseHTTPRequestHandler):
             raise
         dst = x["path"] + ".tt.mov"
         try:
-            media.fix_field_order(x["path"], dst, "tt")
+            media.fix_field_order(x["path"], dst, (x.get("check") or {}).get("fix_to") or "tb")
         finally:
             try:
                 os.remove(x["path"])
             except OSError:
                 pass
         s = media.summarize(media.probe(dst))
+        s["scan"] = media.scan_file(dst)
         r = media.check(s, p["format"])
         if not r["ok"]:
             os.remove(dst)

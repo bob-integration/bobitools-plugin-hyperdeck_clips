@@ -1,6 +1,11 @@
 {
  "changelog": [
   {
+   "version": "0.9.12",
+   "date": "2026-11-22",
+   "notes": "ORDRE DES TRAMES LU DANS LES IMAGES. Un clip enregistré par le HyperDeck lui-même (1080i50) porte l'étiquette `fiel 02 09`, que ffprobe nomme « tb » — la même qu'Apple ProRes (After Effects, Avid). Jusqu'ici l'outil la prenait pour un « défaut d'en-tête de ffmpeg » : il disait « ordre de trame mal déclaré », proposait une correction et parlait de ffmpeg pour des fichiers justes ; il aurait même refusé un clip enregistré par le HyperDeck. Désormais l'ordre est lu dans l'en-tête de chaque image ProRes (la vérité) : images dans le bon ordre → accepté sans question (étiquette `tt` ou `tb`) ; bon ordre mais étiquette discordante → correction de l'ÉTIQUETTE proposée, réécrite comme le HyperDeck (`02 09`), sans réencoder ; images dans l'autre ordre (export en trame inférieure) → refus clair (« refaites l'export en trame haute (supérieure) en premier »), jamais de correction. Le pré-contrôle lit aussi la première image (début du fichier envoyé avec l'en-tête) : un fichier en trame basse est refusé avant l'envoi. Vérifié sur 4 fichiers réels (After Effects trame sup./inf., Avid, enregistrement HyperDeck)."
+  },
+  {
    "version": "0.9.11",
    "date": "2026-11-17",
    "notes": "Dépôt de PLUSIEURS fichiers à l'ordre de trame mal déclaré : ils étaient tous abandonnés même en cliquant « Corriger » (les questions s'ouvraient en même temps dans la même fenêtre, et chaque nouvelle fermait la précédente, ce qui valait « Annuler »). Les fenêtres de message passent désormais une par une (file d'attente), et un dépôt groupé ne pose qu'UNE question d'ordre de trame, valable pour tous ses fichiers. Corrigé aussi : le bouton « Fin de tournage… » affichait le titre « Changement de format » et un texte parasite « [object MouseEvent] » (depuis 0.9.8)."

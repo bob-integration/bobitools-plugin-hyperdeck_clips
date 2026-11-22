@@ -375,7 +375,7 @@ window.BTTools.hyperdeck_clips = (function () {
         (view.pending || []).forEach((x) => {
             out.push('<div class="hc-alert"><strong>' + esc(x.num) + " — « " + esc(x.original) + " » en attente :</strong> "
                 + fieldOrderText(x.original, x.check.problems)
-                + ' <button class="btn" type="button" data-fix="' + esc(x.id) + '">Corriger l\'en-tête et envoyer</button>'
+                + ' <button class="btn" type="button" data-fix="' + esc(x.id) + '">Corriger l\'étiquette et envoyer</button>'
                 + ' <button class="btn" type="button" data-drop-pending="' + esc(x.id) + '">Abandonner</button></div>');
         });
         $("#hc-alerts").innerHTML = out.join("");
@@ -599,9 +599,9 @@ window.BTTools.hyperdeck_clips = (function () {
                 if (r.fixable_field_order) {
                     // Dépôt groupé : UNE question pour tous les fichiers du lot dans le même cas.
                     const b = opts.batch;
-                    const ask = () => confirmDlg("Ordre de trame à corriger", fieldOrderText(file.name, r.problems)
-                        + (b ? "<p><strong>Ce dépôt compte plusieurs fichiers :</strong> la réponse vaudra pour tous ceux qui ont le même défaut d'en-tête.</p>" : ""),
-                        b ? "Corriger les en-têtes et envoyer" : "Corriger l'en-tête et envoyer");
+                    const ask = () => confirmDlg("Étiquette de trame à corriger", fieldOrderText(file.name, r.problems)
+                        + (b ? "<p><strong>Ce dépôt compte plusieurs fichiers :</strong> la réponse vaudra pour tous ceux dont seule l'étiquette est en cause.</p>" : ""),
+                        b ? "Corriger les étiquettes et envoyer" : "Corriger l'étiquette et envoyer");
                     const ok = await (b ? (b.fieldFix = b.fieldFix || ask()) : ask());
                     if (!ok) { finish(u, "failed", "abandonné"); return; }
                     u.fix = true;
@@ -645,8 +645,10 @@ window.BTTools.hyperdeck_clips = (function () {
     async function precheck(file) {
         const blob = await headerBlob(file);
         if (!blob) return null;
-        const r = await fetch("/api/tools/" + encodeURIComponent(ctx.type) + "/players/" + encodeURIComponent(pid) + "/precheck",
-            { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: blob });
+        // + le DÉBUT du fichier (4 Mo) : l'ordre des trames se lit dans la première image
+        // ProRes, pas dans l'étiquette du conteneur (0.9.12).
+        const r = await fetch("/api/tools/" + encodeURIComponent(ctx.type) + "/players/" + encodeURIComponent(pid) + "/precheck?head=" + blob.size,
+            { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: new Blob([blob, file.slice(0, 4 * 1024 * 1024)]) });
         if (r.status === 426) {          // cœur trop ancien : inutile d'envoyer le fichier entier
             const d = await r.json().catch(() => ({}));
             throw Object.assign(new Error(d.error || "cœur trop ancien"), { coreTooOld: true });
@@ -705,11 +707,12 @@ window.BTTools.hyperdeck_clips = (function () {
             if (xhr.status === 200) {
                 finish(u, "done");
                 toast(u.num + " : « " + u.file.name + " » accepté, transfert vers le HyperDeck en file", "info");
-            } else if (xhr.status === 422 && d && d.fixable && u.fix) {
+            } else if (xhr.status === 422 && d && d.fixable && (u.fix || await confirmDlg("Étiquette de trame à corriger",
+                fieldOrderText(u.file.name, d.problems), "Corriger l'étiquette et envoyer"))) {
                 try {
                     await ctx.api("players/" + pidAt + "/pending/" + d.pending + "/fix", { method: "POST", body: {} });
                     finish(u, "done");
-                    toast(u.num + " : en-tête corrigé, transfert en file", "info");
+                    toast(u.num + " : étiquette corrigée, transfert en file", "info");
                 } catch (e) { finish(u, "failed", e.message); refusal(u.file.name, (e.data && e.data.problems) || [e.message]); }
             } else if (xhr.status === 422 && d) {
                 finish(u, "failed", "refusé");
@@ -733,17 +736,16 @@ window.BTTools.hyperdeck_clips = (function () {
         xhr.send(u.file);
     }
 
-    // Ordre de trame : dire D'ABORD ce que le HyperDeck attend, sinon on ne comprend pas
-    // pourquoi l'outil propose de changer quelque chose (retour utilisateur 2026-11-17).
+    // Étiquette d'ordre des trames : la question n'est posée que si les IMAGES sont dans le
+    // bon ordre (lu image par image) et que seule l'étiquette du fichier dit autre chose.
+    // Un fichier vraiment dans l'autre ordre est refusé, sans question (0.9.12 ; avant,
+    // l'outil prenait l'étiquette normale d'Apple et du HyperDeck pour un défaut de ffmpeg).
     function fieldOrderText(name, problems) {
-        const got = (problems || []).map((p) => (/reçu (.*)$/.exec(p) || [])[1]).filter(Boolean)[0];
-        return "<p>Ce lecteur est réglé en <strong>" + esc((view && view.format_label) || "trame haute en premier")
-            + "</strong> : son HyperDeck attend des images entrelacées <strong>trame haute en premier</strong>.</p>"
-            + "<p>L'en-tête de « " + esc(name) + " » déclare autre chose" + (got ? " : <strong>" + esc(got) + "</strong>" : "") + ".</p>"
-            + "<p><strong>Si le fichier sort de ffmpeg</strong> (ou d'un outil qui s'appuie dessus), c'est un défaut connu : les images sont bien trame haute en premier, "
-            + "seule l'étiquette est fausse. L'outil peut corriger l'étiquette sans réencoder, l'image n'est pas touchée.</p>"
-            + "<p><strong>Si le fichier a vraiment été fabriqué en trame basse</strong> (réglage d'export), ne corrigez pas : l'image tremblerait à l'antenne. "
-            + "Refaites l'export en trame haute en premier.</p>";
+        const why = (problems || []).find((p) => /^étiquette du fichier/.test(p));
+        return "<p>Ce lecteur attend : <strong>" + esc((view && view.format_label) || "entrelacé, trame haute en premier") + "</strong>.</p>"
+            + "<p>Les images de « " + esc(name) + " » sont <strong>dans le bon ordre de trames</strong> : l'outil l'a vérifié dans le fichier lui-même.</p>"
+            + "<p>Seule son <strong>étiquette</strong> déclare autre chose" + (why ? " (" + esc(why.replace(/^étiquette du fichier : /, "").replace(/ — .*$/, "")) + ")" : "") + ". "
+            + "L'outil peut la réécrire comme l'écrit le HyperDeck lui-même, sans réencoder : l'image n'est pas touchée.</p>";
     }
 
     function refusal(name, problems, summary, expected) {

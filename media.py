@@ -9,11 +9,18 @@ Le HyperDeck ne lit PAS un clip dont le format diffère de celui de sa timeline 
 mal encodé ne fait pas « un peu moins bien », il ne part pas à l'antenne. On refuse donc
 avant d'envoyer, sur des critères mesurés par ffprobe — jamais sur l'extension.
 
-Piège des .mov ProRes entrelacés produits par ffmpeg : l'encodeur inscrit « trame basse en
-premier » (`bb`, ou `tb` selon la version) dans l'atome `fiel` alors que les images sont bien trame haute en premier.
-On ne peut pas trancher en lisant l'en-tête (un vrai fichier `bb` existe aussi) : le
-refus reste la règle, et la correction d'en-tête (`-c copy -field_order tt`, sans
-réencodage) est un geste PROPOSÉ à l'exploitant, qui sait d'où vient son fichier.
+Ordre des trames — on le lit dans les IMAGES, pas dans l'étiquette du conteneur. Chaque
+image ProRes porte dans son en-tête (« icpf ») son mode : progressif, trame haute en premier
+ou trame basse en premier. C'est la vérité ; l'atome `fiel` du conteneur n'est qu'une étiquette.
+FAIT TERRAIN 2026-11-22 (clip enregistré par un HyperDeck Studio en 1080i50) : le HyperDeck
+étiquette lui-même la trame haute `fiel 02 09`, que ffprobe NOMME « tb » — comme Apple ProRes
+(After Effects, Avid). Ce « tb » n'est PAS un défaut : jusqu'en 0.9.11 l'outil le prenait pour
+un « bogue d'en-tête de ffmpeg », refusait des fichiers justes et aurait refusé un clip
+enregistré par le HyperDeck. Règle depuis 0.9.12 :
+  - images dans l'ordre attendu + étiquette concordante (`tt` ou `tb` pour la trame haute) → accepté ;
+  - images dans l'ordre attendu + étiquette discordante → correction de l'ÉTIQUETTE proposée
+    (`-c copy`, sans réencoder), réécrite comme l'écrit le HyperDeck (`tb`, soit `fiel 02 09`) ;
+  - images dans l'AUTRE ordre → refus, jamais de correction (l'image tremblerait à l'antenne).
 """
 import hashlib
 import json
@@ -38,10 +45,10 @@ PRORES = {
 FIELD_LABEL = {
     "tt": "entrelacé, trame haute en premier",
     "bb": "entrelacé, trame basse en premier",
-    # « tb »/« bt » : ordres MIXTES (trame codée en premier ≠ trame affichée en premier).
-    # « tb » est ce qu'écrit ffmpeg récent pour du trame haute : cf. le bogue plus bas.
-    "tb": "entrelacé, ordre de trame mal déclaré (« tb »)",
-    "bt": "entrelacé, ordre de trame mal déclaré (« bt »)",
+    # « tb »/« bt » : noms que ffprobe donne aux étiquettes `fiel 02 09` / `02 0e`, celles
+    # qu'écrivent le HyperDeck et Apple ProRes pour la trame haute / basse en premier.
+    "tb": "entrelacé, trame haute en premier",
+    "bt": "entrelacé, trame basse en premier",
     "progressive": "progressif", "unknown": "balayage inconnu", None: "balayage non déclaré",
 }
 
@@ -60,6 +67,54 @@ def format_label(fmt):
     return "%s, %d × %d, %s i/s %s (%s%s)" % (
         PRORES.get(f["codec_tag"], {}).get("label", f["codec_tag"]), f["width"], f["height"],
         rate_s, FIELD_LABEL.get(f["field_order"], f["field_order"]), f["height"], scan + cad)
+
+
+# Étiquettes de conteneur qui concordent avec un ordre d'images, et celle que le HyperDeck
+# écrit lui-même (cible de la correction d'étiquette).
+FIELD_TAGS = {"tff": ("tt", "tb"), "bff": ("bb", "bt")}
+FIELD_NATIVE = {"tff": "tb", "bff": "bt"}
+SCAN_OF = {"tt": "tff", "bb": "bff"}
+SCAN_LABEL = {"tff": "trame haute (supérieure) en premier", "bff": "trame basse (inférieure) en premier",
+              "progressive": "progressives"}
+
+
+def prores_scan(data):
+    """Ordre des trames lu dans l'en-tête de la première image ProRes trouvée dans `data`
+    (octets bruts du fichier) : 'tff' | 'bff' | 'progressive' | None (pas trouvé).
+    En-tête d'image : taille(4) « icpf » taille_en-tête(2) version(2) créateur(4)
+    largeur(2) hauteur(2) drapeaux(1) — bits 3-2 des drapeaux : 0 progressif, 1 trame
+    haute, 2 trame basse (relevé : 0x84 / 0x88 sur Apple, Avid et HyperDeck)."""
+    i = data.find(b"icpf")
+    while i >= 0:
+        h = data[i + 4:i + 17]
+        if len(h) == 13:
+            hdr = int.from_bytes(h[0:2], "big")
+            w, hh = int.from_bytes(h[8:10], "big"), int.from_bytes(h[10:12], "big")
+            if 20 <= hdr <= 1024 and 16 <= w <= 16384 and 16 <= hh <= 16384:
+                return {0: "progressive", 1: "tff", 2: "bff"}.get((h[12] >> 2) & 3)
+        i = data.find(b"icpf", i + 4)
+    return None
+
+
+def scan_file(path, limit=32 << 20, timeout=60):
+    """Ordre des trames des IMAGES d'un fichier : en-tête ProRes dans les premiers Mo, sinon
+    ce que ffprobe dit de la première image décodée. None si rien de sûr."""
+    try:
+        with open(path, "rb") as fh:
+            got = prores_scan(fh.read(limit))
+        if got:
+            return got
+        p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
+                            "-show_entries", "frame=interlaced_frame,top_field_first", "-of", "json", path],
+                           capture_output=True, text=True, timeout=timeout)
+        fr = (json.loads(p.stdout or "{}").get("frames") or [None])[0]
+        if fr:
+            if not fr.get("interlaced_frame"):
+                return "progressive"
+            return "tff" if fr.get("top_field_first") else "bff"
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return None
 
 
 def probe(path, timeout=60):
@@ -120,9 +175,10 @@ def _int(x):
 def check(summary, fmt, partial=False):
     """Compare un résumé au format attendu.
 
-    Renvoie {ok, problems: [str], fixable_field_order: bool}. `fixable_field_order` n'est
-    vrai que si la SEULE différence est l'ordre de trame déclaré `bb`/`tb` alors qu'on
-    attend `tt` — le cas du bogue d'en-tête ffmpeg, et rien d'autre.
+    Renvoie {ok, problems: [str], fixable_field_order: bool, fix_to?}. `fixable_field_order`
+    n'est vrai que si la SEULE différence est l'ÉTIQUETTE d'ordre des trames, les images
+    (`summary["scan"]`, lu par scan_file) étant dans l'ordre attendu ; `fix_to` = étiquette
+    à écrire (celle du HyperDeck).
     `partial` : contrôle sur l'en-tête seul (pré-contrôle navigateur) — la durée n'a pas
     de sens et l'absence de données média est normale.
     """
@@ -146,19 +202,43 @@ def check(summary, fmt, partial=False):
         problems.append("cadence : %g i/s attendu, reçu %s" % (
             want_rate or 0, ("%g" % got_rate) if got_rate is not None else "inconnue"))
         field_only = False
-    got_fo = summary.get("field_order")
-    if got_fo != f["field_order"]:
+    got_fo, scan = summary.get("field_order"), summary.get("scan")
+    want_scan, label_only = SCAN_OF.get(f["field_order"]), False
+    if want_scan:                                   # entrelacé attendu
+        if scan == want_scan:
+            if got_fo not in FIELD_TAGS[want_scan]:
+                label_only = True
+                problems.append("étiquette du fichier : les images sont bien en %s, mais le fichier déclare « %s » "
+                                "— l'étiquette peut être corrigée sans réencoder" % (
+                                    SCAN_LABEL[scan], FIELD_LABEL.get(got_fo, got_fo)))
+        elif scan in ("tff", "bff"):
+            problems.append("ordre des trames : le HyperDeck attend des images en %s, celles de ce fichier sont en %s "
+                            "— refaites l'export en %s" % (SCAN_LABEL[want_scan], SCAN_LABEL[scan], SCAN_LABEL[want_scan]))
+        elif scan == "progressive":
+            problems.append("balayage : le HyperDeck attend des images entrelacées (%s), celles de ce fichier sont "
+                            "progressives" % SCAN_LABEL[want_scan])
+        elif got_fo in FIELD_TAGS[want_scan]:
+            pass                                    # images non lues : l'étiquette concorde
+        elif partial and got_fo in ("tt", "tb", "bb", "bt"):
+            pass                                    # pré-contrôle sans image : le fichier complet tranchera
+        else:
+            problems.append("balayage : %s attendu, le fichier déclare %s" % (
+                FIELD_LABEL.get(f["field_order"], f["field_order"]), FIELD_LABEL.get(got_fo, got_fo)))
+    elif got_fo != f["field_order"] or scan in ("tff", "bff"):
         problems.append("balayage : %s attendu, reçu %s" % (
             FIELD_LABEL.get(f["field_order"], f["field_order"]),
-            FIELD_LABEL.get(got_fo, got_fo)))
-    else:
+            ("entrelacé, " + SCAN_LABEL[scan]) if scan in ("tff", "bff") else FIELD_LABEL.get(got_fo, got_fo)))
+    if not label_only:
         field_only = False
     if not partial and not (summary.get("duration") or 0) > 0:
         problems.append("durée nulle ou illisible")
         field_only = False
-    # Le bogue s'écrit `bb` ou `tb` selon la version de ffmpeg (relevé : Lavf 62 → `tb`).
-    fixable = bool(problems) and field_only and got_fo in ("bb", "tb") and f["field_order"] == "tt"
-    return {"ok": not problems, "problems": problems, "fixable_field_order": fixable}
+    # Corrigeable : SEULE l'étiquette est en cause, les images étant lues dans le bon ordre.
+    fixable = bool(problems) and field_only
+    out = {"ok": not problems, "problems": problems, "fixable_field_order": fixable}
+    if fixable:
+        out["fix_to"] = FIELD_NATIVE[want_scan]
+    return out
 
 
 def ffmpeg_error(stderr, what="fabrication"):
