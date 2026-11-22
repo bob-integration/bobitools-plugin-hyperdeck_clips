@@ -212,8 +212,8 @@ class Handler(BaseHTTPRequestHandler):
         if ct != "application/octet-stream":
             self._drain()
             raise _err(426, "le fichier n'est pas parvenu à l'outil : le cœur de Bobi.Tools est trop "
-                            "ancien pour relayer un envoi de fichier. Mettez à jour Bobi.Tools "
-                            "(relais des envois, app/routes.py:_proxy_stream), puis redémarrez-le.",
+                            "ancien pour relayer un envoi de fichier. Cet outil demande Bobi.Tools 1.1.0 ou plus "
+                            "récent : mettez Bobi.Tools à jour, puis redémarrez-le.",
                        reason="core_too_old")
 
     def _receive(self, dst, limit=None):

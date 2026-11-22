@@ -62,18 +62,21 @@ même ordre : tout l'outil est construit autour de cette règle.
 
 ## Prérequis
 
-- **Bobi.Tools** avec **Docker** : l'outil tourne en conteneur (`runtime: docker`, Alpine +
-  ffmpeg). Le cœur doit relayer les envois de fichiers par morceaux (commit « Proxy outils
-  Docker : relais par morceaux », 2026-11) : sans lui, les fichiers arrivent vides et l'outil
-  répond « cœur trop ancien ».
+- **Bobi.Tools 1.1.0** ou plus récent, avec **Docker** : l'outil tourne en conteneur
+  (Alpine + ffmpeg). Une instance plus ancienne refuse de l'installer.
 - Des HyperDeck joignables en **FTP** (port 21) et sur **TCP 9993**, réglés au format des
   clips à livrer.
 - De la place sur le serveur : chaque clip y est stocké en entier avant l'envoi.
 
 ## Installation
 
-Dans Bobi.Tools : **Réglages → Outils → Catalogue**, bouton « Installer », ou import du paquet
-`.bobitool` (Réglages → Outils). Le dépôt est **privé** : l'instance doit avoir accès à
-l'organisation GitHub.
+Le dépôt est **privé** : l'outil n'apparaît pas dans le catalogue de Bobi.Tools, qui ne liste
+que les dépôts publics. Deux façons de l'installer :
+
+- **par paquet** : importer le fichier `.bobitool` dans **Réglages → Outils** ;
+- **par GitHub** : une instance qui se met à jour par GitHub le reçoit avec Bobi.Tools (il en
+  est un sous-module), à condition d'avoir accès à l'organisation. Si l'outil avait été
+  installé auparavant par paquet, il est repris avec ses versions archivées — à condition que
+  l'instance tourne déjà en 1.1.0 au moment de cette mise à jour.
 
 L'aide complète est dans [`help.md`](help.md), affichée dans Bobi.Tools (menu « ? » → Aide).
